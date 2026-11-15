@@ -4,7 +4,10 @@
 // so every screenshot is a genuine render of the game, reproducible from
 // its seed. No wall clock is read here: time comes only from steps.
 
+// The upgrade draft, played by the autopilot: take the Extra Heart when
+// offered (survival first), else the first card, and keep playing.
 import { FIELD, TUNING } from './config.js';
+import { applyDraftPick } from './draft.js';
 
 const STEP = 1 / 60;
 
@@ -99,12 +102,22 @@ export function makeAutopilot(world) {
   return driver;
 }
 
-function playSteps(world, driver, seconds, sound) {
+function playSteps(world, driver, seconds, sound, stopAtDraft) {
   const n = Math.round(seconds / STEP);
   for (let i = 0; i < n; i += 1) {
+    // A draft pauses play until a card is picked: the autopilot takes
+    // the Extra Heart when offered, else the first card, then plays on.
+    if (world.screen === 'draft') {
+      // ...unless the caller wants to freeze on the draft itself, for
+      // the screenshot that shows the three cards.
+      if (stopAtDraft) return;
+      const heartIdx = world.draft.options.findIndex((o) => o.id === 'heart');
+      applyDraftPick(world, heartIdx >= 0 ? heartIdx : 0);
+      continue;
+    }
     driver.think();
     world.step(STEP, driver, sound);
-    if (world.screen !== 'play') break;
+    if (world.screen !== 'play' && world.screen !== 'draft') break;
   }
 }
 
@@ -125,6 +138,12 @@ export function stageShot(kind, world, sound) {
   world.begin();
   if (kind === 'play') {
     playSteps(world, driver, 78, sound);
+    return { screen: world.screen, driver };
+  }
+  if (kind === 'draft') {
+    // Play until the first upgrade draft opens (wave 1 cleared), then
+    // freeze on the three cards: the screenshot shows the draft itself.
+    playSteps(world, driver, 150, sound, true);
     return { screen: world.screen, driver };
   }
   if (kind === 'action') {

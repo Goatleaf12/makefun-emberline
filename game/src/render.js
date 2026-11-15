@@ -3,7 +3,34 @@
 // Reads world state only; never mutates it. All layout is in field pixels
 // (960x600) and the caller scales the canvas to fit the window.
 
-import { FIELD, PALETTE, TUNING, WISP_KINDS, PICKUP_KINDS } from './config.js';
+import { FIELD, PALETTE, TUNING, WISP_KINDS, WISP_GLOWS, PICKUP_KINDS } from './config.js';
+import { draftCardRects, draftTitle, draftTakenCount } from './draft.js';
+
+// Pre-rendered radial glow sprites: one soft halo per colour, drawn with
+// drawImage instead of a fresh gradient every frame. Cheap at 60 fps and
+// visibly richer than flat fills — the whole night glows.
+const glowCache = new Map();
+function glowSprite(color) {
+  let sprite = glowCache.get(color);
+  if (sprite) return sprite;
+  sprite = document.createElement('canvas');
+  sprite.width = 64;
+  sprite.height = 64;
+  const g = sprite.getContext('2d');
+  const grad = g.createRadialGradient(32, 32, 1, 32, 32, 32);
+  grad.addColorStop(0, color);
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  glowCache.set(color, sprite);
+  return sprite;
+}
+
+function drawGlow(ctx, x, y, radius, color, alpha) {
+  ctx.globalAlpha = alpha;
+  ctx.drawImage(glowSprite(color), x - radius, y - radius, radius * 2, radius * 2);
+  ctx.globalAlpha = 1;
+}
 
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
@@ -37,24 +64,72 @@ function drawField(ctx, world) {
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, FIELD.width, FIELD.height);
 
-  // Faint stars, placed by a fixed hash of their index so they never move.
-  ctx.fillStyle = 'rgba(255,247,230,0.5)';
-  for (let i = 0; i < 70; i += 1) {
-    const x = (i * 137.5) % FIELD.width;
-    const y = (i * 89.3) % FIELD.height;
-    const s = 1 + ((i * 7) % 3) * 0.5;
-    ctx.fillRect(x, y, s, s);
+  // Drifting nebula clouds: four huge, faint colour washes that slide
+  // slowly across the night, so the backdrop never looks like flat paint.
+  const nebulae = [
+    { x: 170, y: 130, r: 260, color: PALETTE.nebulaViolet, drift: 6 },
+    { x: 800, y: 110, r: 220, color: PALETTE.nebulaTeal, drift: -9 },
+    { x: 760, y: 480, r: 240, color: PALETTE.nebulaRose, drift: 7 },
+    { x: 150, y: 470, r: 200, color: PALETTE.nebulaAmber, drift: -5 },
+  ];
+  for (const n of nebulae) {
+    const nx = n.x + Math.sin(world.time * 0.05 + n.drift) * 18;
+    const ny = n.y + Math.cos(world.time * 0.04 + n.drift) * 12;
+    const ng = ctx.createRadialGradient(nx, ny, 10, nx, ny, n.r);
+    ng.addColorStop(0, n.color);
+    ng.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.globalAlpha = 0.16;
+    ctx.fillStyle = ng;
+    ctx.fillRect(nx - n.r, ny - n.r, n.r * 2, n.r * 2);
   }
+  ctx.globalAlpha = 1;
+
+  // Layered parallax starfield: three depths of stars drifting at three
+  // speeds, placed by a fixed hash of their index so they never jump.
+  const layers = [
+    { n: 46, size: 1, alpha: 0.35, speed: 2 },
+    { n: 34, size: 1.6, alpha: 0.55, speed: 5 },
+    { n: 18, size: 2.6, alpha: 0.85, speed: 9 },
+  ];
+  for (let l = 0; l < layers.length; l += 1) {
+    const layer = layers[l];
+    ctx.fillStyle = `rgba(255,247,230,${layer.alpha})`;
+    for (let i = 0; i < layer.n; i += 1) {
+      const baseX = ((i * 137.5 + l * 311) % FIELD.width);
+      const baseY = ((i * 89.3 + l * 173) % FIELD.height);
+      let x = (baseX + world.time * layer.speed) % FIELD.width;
+      if (x < 0) x += FIELD.width;
+      const twinkle = 0.75 + 0.25 * Math.sin(world.time * 2 + i * 1.7 + l);
+      ctx.globalAlpha = layer.alpha * twinkle;
+      ctx.fillRect(x, baseY, layer.size, layer.size);
+    }
+  }
+  ctx.globalAlpha = 1;
 
   // The beacon: a lighthouse glow at the top centre, ringed by the five
   // beacon rings the keeper must light before dawn.
   const bx = FIELD.width / 2;
   const by = 26;
-  const glow = ctx.createRadialGradient(bx, by, 4, bx, by, 120);
-  glow.addColorStop(0, 'rgba(255,209,102,0.5)');
-  glow.addColorStop(1, 'rgba(255,209,102,0)');
-  ctx.fillStyle = glow;
-  ctx.fillRect(bx - 120, by - 120, 240, 240);
+  // Two faint lighthouse beams sweep the night from the beacon tower.
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (let b = 0; b < 2; b += 1) {
+    const beamAngle = world.time * 0.45 + b * Math.PI;
+    const bx2 = bx + Math.cos(beamAngle) * 300;
+    const by2 = by + Math.abs(Math.sin(beamAngle)) * 190 + 20;
+    const beam = ctx.createLinearGradient(bx, by, bx2, by2);
+    beam.addColorStop(0, 'rgba(255,209,102,0.10)');
+    beam.addColorStop(1, 'rgba(255,209,102,0)');
+    ctx.fillStyle = beam;
+    ctx.beginPath();
+    ctx.moveTo(bx, by);
+    ctx.lineTo(bx2 - 14, by2);
+    ctx.lineTo(bx2 + 14, by2);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+  drawGlow(ctx, bx, by, 120, 'rgba(255,209,102,0.5)', 1);
   ctx.fillStyle = '#fff3c4';
   ctx.beginPath();
   ctx.arc(bx, by, 10, 0, Math.PI * 2);
@@ -63,8 +138,11 @@ function drawField(ctx, world) {
   ctx.fillRect(bx - 3, by + 8, 6, 14);
   for (let i = 0; i < 5; i += 1) {
     const lit = i < world.ringsLit;
+    // Lit rings breathe: a slow pulse of light around each lit ring.
+    const pulse = lit ? 1 + Math.sin(world.time * 3 + i * 1.3) * 0.18 : 1;
+    if (lit) drawGlow(ctx, bx - 44 + i * 22, by + 34, 16 * pulse, 'rgba(255,209,102,0.6)', 1);
     ctx.beginPath();
-    ctx.arc(bx - 44 + i * 22, by + 34, 6, 0, Math.PI * 2);
+    ctx.arc(bx - 44 + i * 22, by + 34, 6 * pulse, 0, Math.PI * 2);
     ctx.fillStyle = lit ? PALETTE.ringLit : PALETTE.ringDark;
     ctx.fill();
     if (lit) {
@@ -89,11 +167,9 @@ function drawMotes(ctx, world) {
   for (const m of world.motes) {
     const pulse = 1 + Math.sin(m.phase) * 0.18;
     const r = m.r * pulse;
-    const glow = ctx.createRadialGradient(m.x, m.y, 1, m.x, m.y, r * 3);
-    glow.addColorStop(0, 'rgba(255,209,102,0.55)');
-    glow.addColorStop(1, 'rgba(255,209,102,0)');
-    ctx.fillStyle = glow;
-    ctx.fillRect(m.x - r * 3, m.y - r * 3, r * 6, r * 6);
+    // Storm motes burn hotter and brighter than ordinary ones.
+    const glowColor = m.storm ? 'rgba(255,190,80,0.7)' : 'rgba(255,209,102,0.55)';
+    drawGlow(ctx, m.x, m.y, r * 3, glowColor, 1);
     drawStar(ctx, m.x, m.y, r, 4, PALETTE.mote);
     ctx.fillStyle = PALETTE.moteCore;
     ctx.beginPath();
@@ -106,13 +182,22 @@ function drawWisps(ctx, world) {
   for (const w of world.wisps) {
     const color = WISP_KINDS[w.kind].hue;
     const flicker = 0.85 + Math.sin(w.wobble * 2) * 0.15;
-    ctx.globalAlpha = flicker;
-    const glow = ctx.createRadialGradient(w.x, w.y, 2, w.x, w.y, w.r * 2.6);
-    glow.addColorStop(0, color);
-    glow.addColorStop(1, 'rgba(125,211,252,0)');
-    ctx.globalAlpha = flicker * 0.5;
-    ctx.fillStyle = glow;
-    ctx.fillRect(w.x - w.r * 2.6, w.y - w.r * 2.6, w.r * 5.2, w.r * 5.2);
+    // Spawn telegraph: a shrinking warning ring for the first half-second,
+    // so a new wisp never ambushes the keeper out of nowhere.
+    if (w.age < 0.6) {
+      const frac = 1 - w.age / 0.6;
+      ctx.globalAlpha = 0.7 * frac + 0.15;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 5]);
+      ctx.beginPath();
+      ctx.arc(w.x, w.y, w.r + 26 * frac + 4, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+    }
+    // Each kind glows in its own colour, so threats read at a glance.
+    drawGlow(ctx, w.x, w.y, w.r * 2.6, WISP_GLOWS[w.kind], flicker * 0.9);
     ctx.globalAlpha = flicker;
     ctx.fillStyle = color;
     ctx.beginPath();
@@ -126,6 +211,30 @@ function drawWisps(ctx, world) {
     ctx.arc(w.x + ex * 4 - ey * 5, w.y + ey * 4 + ex * 5, 2.6, 0, Math.PI * 2);
     ctx.arc(w.x + ex * 4 + ey * 5, w.y + ey * 4 - ex * 5, 2.6, 0, Math.PI * 2);
     ctx.fill();
+    // Kind silhouettes: chasers wear horns, splitters carry a double core,
+    // swifts drag a streak behind them. Drifters stay plain and round.
+    if (w.kind === 'chaser') {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(w.x - ey * 8, w.y + ex * 8);
+      ctx.lineTo(w.x + ex * (w.r + 8) - ey * 4, w.y + ey * (w.r + 8) + ex * 4);
+      ctx.lineTo(w.x + ex * (w.r - 2) + ey * 4, w.y + ey * (w.r - 2) - ex * 4);
+      ctx.closePath();
+      ctx.fill();
+    } else if (w.kind === 'splitter') {
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.beginPath();
+      ctx.arc(w.x - 5, w.y - 3, 3.4, 0, Math.PI * 2);
+      ctx.arc(w.x + 5, w.y + 3, 3.4, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (w.kind === 'swift') {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(w.x - ex * w.r, w.y - ey * w.r);
+      ctx.lineTo(w.x - ex * (w.r + 22), w.y - ey * (w.r + 22));
+      ctx.stroke();
+    }
     ctx.strokeStyle = PALETTE.wispEdge;
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -140,6 +249,8 @@ function drawPickups(ctx, world) {
     const info = PICKUP_KINDS[p.kind];
     const bob = Math.sin(p.phase) * 4;
     const blink = p.life < 3 ? (Math.sin(p.phase * 6) > 0 ? 1 : 0.35) : 1;
+    ctx.globalAlpha = blink;
+    drawGlow(ctx, p.x, p.y + bob, 30, info.color, 0.7);
     ctx.globalAlpha = blink;
     ctx.fillStyle = info.color;
     ctx.beginPath();
@@ -161,11 +272,8 @@ function drawEmber(ctx, world) {
   const e = world.ember;
   const blink = e.invuln > 0 && Math.floor(e.invuln * 12) % 2 === 0;
   if (blink) return;
-  const glow = ctx.createRadialGradient(e.x, e.y, 2, e.x, e.y, 46);
-  glow.addColorStop(0, 'rgba(255,179,71,0.85)');
-  glow.addColorStop(1, 'rgba(255,140,66,0)');
-  ctx.fillStyle = glow;
-  ctx.fillRect(e.x - 46, e.y - 46, 92, 92);
+  // A warm halo follows Ember everywhere, brighter while dashing.
+  drawGlow(ctx, e.x, e.y, e.dashLeft > 0 ? 64 : 46, 'rgba(255,179,71,0.85)', 1);
 
   if (e.shield) {
     ctx.strokeStyle = 'rgba(147,197,253,0.9)';
@@ -236,7 +344,7 @@ function drawHud(ctx, world) {
   ctx.font = '13px sans-serif';
   ctx.fillStyle = PALETTE.dimCream;
   ctx.fillText(`BEST ${Math.max(world.best, world.score)}`, 22, 50);
-  for (let i = 0; i < TUNING.hearts; i += 1) {
+  for (let i = 0; i < world.maxHearts; i += 1) {
     const hx = 268 + i * 24;
     const hy = 30;
     ctx.fillStyle = i < world.hearts ? PALETTE.heart : '#3a3f5e';
@@ -265,7 +373,7 @@ function drawHud(ctx, world) {
   ctx.fillStyle = '#3a3f5e';
   roundRect(ctx, 90, FIELD.height - 46, 130, 12, 6);
   ctx.fill();
-  const frac = Math.min(1, world.energy / TUNING.flareCost);
+  const frac = Math.min(1, world.energy / world.flareCost);
   ctx.fillStyle = frac >= 1 ? PALETTE.flare : PALETTE.ember;
   if (frac > 0) {
     roundRect(ctx, 90, FIELD.height - 46, 130 * frac, 12, 6);
@@ -285,6 +393,13 @@ function drawHud(ctx, world) {
   ctx.font = '13px sans-serif';
   ctx.textAlign = 'right';
   ctx.fillText(slot, 330, FIELD.height - 16);
+  // Upgrades taken so far, bottom-right: the draft's progress at a glance.
+  const taken = draftTakenCount(world);
+  if (taken > 0) {
+    ctx.fillStyle = PALETTE.mote;
+    ctx.font = 'bold 13px sans-serif';
+    ctx.fillText(`UPGRADES ${taken}`, FIELD.width - 16, FIELD.height - 16);
+  }
   ctx.textAlign = 'left';
 
   // Low-health heartbeat vignette.
@@ -351,6 +466,59 @@ export function drawWorld(ctx, world) {
   if (world.screen === 'play' || world.screen === 'pause') drawHud(ctx, world);
 }
 
+export function drawDraft(ctx, world) {
+  if (!world.draft) return;
+  drawWorld(ctx, world);
+  drawHud(ctx, world);
+  ctx.fillStyle = 'rgba(5,8,24,0.62)';
+  ctx.fillRect(0, 0, FIELD.width, FIELD.height);
+  ctx.fillStyle = PALETTE.ember;
+  ctx.font = 'bold 30px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(draftTitle(world), FIELD.width / 2, 120);
+  ctx.fillStyle = PALETTE.dimCream;
+  ctx.font = '16px sans-serif';
+  ctx.fillText('Pick one — it stays with you until dawn. Click a card, or press 1, 2 or 3.', FIELD.width / 2, 152);
+  const rects = draftCardRects();
+  world.draft.options.forEach((opt, i) => {
+    const r = rects[i];
+    ctx.fillStyle = 'rgba(11,16,38,0.94)';
+    roundRect(ctx, r.x, r.y, r.w, r.h, 14);
+    ctx.fill();
+    ctx.strokeStyle = opt.color;
+    ctx.lineWidth = 2.5;
+    roundRect(ctx, r.x, r.y, r.w, r.h, 14);
+    ctx.stroke();
+    ctx.fillStyle = opt.color;
+    ctx.font = 'bold 15px sans-serif';
+    ctx.fillText(`[ ${i + 1} ]`, r.x + r.w / 2, r.y + 28);
+    ctx.font = '44px sans-serif';
+    ctx.fillText(opt.icon, r.x + r.w / 2, r.y + 84);
+    ctx.fillStyle = PALETTE.cream;
+    ctx.font = 'bold 19px sans-serif';
+    ctx.fillText(opt.name, r.x + r.w / 2, r.y + 118);
+    ctx.fillStyle = PALETTE.dimCream;
+    ctx.font = '14px sans-serif';
+    // Wrap the detail line in two short lines so it never overflows.
+    const words = opt.detail.split(' ');
+    let line = '';
+    let lineY = r.y + 146;
+    for (const word of words) {
+      if ((line + word).length > 26 && line) {
+        ctx.fillText(line.trim(), r.x + r.w / 2, lineY);
+        line = '';
+        lineY += 20;
+      }
+      line += `${word} `;
+    }
+    if (line.trim()) ctx.fillText(line.trim(), r.x + r.w / 2, lineY);
+  });
+  ctx.fillStyle = PALETTE.mote;
+  ctx.font = 'bold 16px sans-serif';
+  ctx.fillText('Your build so far: ' + (Object.entries(world.upgradesTaken).map(([id, n]) => `${id} x${n}`).join('  •  ') || 'none yet — first pick!'), FIELD.width / 2, 448);
+  ctx.textAlign = 'left';
+}
+
 export function drawTitle(ctx, world) {
   drawWorld(ctx, world);
   ctx.fillStyle = 'rgba(5,8,24,0.55)';
@@ -370,6 +538,7 @@ export function drawTitle(ctx, world) {
   ctx.font = 'bold 16px sans-serif';
   ctx.fillText('WASD / Arrows or hold mouse to steer  •  Shift dash  •  F flare  •  P pause  •  M mute', FIELD.width / 2, 316);
   ctx.fillText('Pickups replace each other: Shield, Magnet, Slowlight — choose what fits the moment.', FIELD.width / 2, 342);
+  ctx.fillText('Clear a wave and draft 1 of 3 upgrades: hearts, wider flare, faster dash, richer motes.', FIELD.width / 2, 368);
   ctx.fillStyle = PALETTE.mote;
   ctx.font = 'bold 22px sans-serif';
   ctx.fillText('Press SPACE or click to begin', FIELD.width / 2, 408);
@@ -407,6 +576,7 @@ export function drawEnd(ctx, world) {
 export function drawScreen(ctx, world) {
   if (world.screen === 'title') drawTitle(ctx, world);
   else if (world.screen === 'pause') drawPause(ctx, world);
+  else if (world.screen === 'draft') drawDraft(ctx, world);
   else if (world.screen === 'won' || world.screen === 'lost') drawEnd(ctx, world);
   else drawWorld(ctx, world);
 }

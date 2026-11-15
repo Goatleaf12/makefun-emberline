@@ -21,7 +21,17 @@ EMBERLINE — Keeper of the Last Light: an original top-down arcade game where E
 - **Pickups** appear on the field — Aegis Shield (blocks one hit), Mote
   Magnet (pulls motes to you), Slowlight (wisps drift slowly for 6 s).
   You hold one at a time; taking a new one replaces the old.
-- **Dash (Shift)** for a burst of speed and a blink of invulnerability.
+- **Dash (Shift)** for a burst of speed and a blink of invulnerability —
+  dashes leave a bright trail behind Ember.
+- **The night is alive:** drifting nebula clouds, a three-layer parallax
+  starfield, sweeping lighthouse beams from the beacon, and a pulsing
+  glow on every lit beacon ring. Each wisp kind glows in its own colour
+  (sky-blue drifter, violet chaser, magenta splitter, cyan swift) and
+  shows a shrinking warning ring when it spawns.
+- **Draft (new in v2):** clear a wave and choose 1 of 3 upgrade cards —
+  Extra Heart, Wide Flare, Kindled Flare, Swift Dash, Strong Magnet, Long
+  Combo, Swift Wings or Rich Motes. Click a card or press **1 / 2 / 3**.
+  Upgrades stack across the 10 waves, so every run builds differently.
 - **P / Esc** pauses, **M** mutes, **R** restarts, **Space** starts.
 
 **Win:** survive all 10 waves and light all 5 beacon rings — dawn breaks.
@@ -38,7 +48,7 @@ node serve.ts
 No build step, no libraries, no network requests: vanilla JS + Canvas 2D
 with synthesised WebAudio sound, all art drawn procedurally.
 
-Deterministic scenes for screenshots: `/?shot=title|play|action|end&seed=N`.
+Deterministic scenes for screenshots: `/?shot=title|play|action|draft|end&seed=N`.
 
 ## Layout
 
@@ -48,6 +58,7 @@ Deterministic scenes for screenshots: `/?shot=title|play|action|end&seed=N`.
 - `game/src/audio.js` — synthesised SFX and ambient music
 - `game/src/input.js` — keyboard + pointer state
 - `game/src/world.js` — entities, waves, collisions, scoring
+- `game/src/draft.js` — the between-wave upgrade draft (8 upgrades, 3 cards)
 - `game/src/render.js` — canvas drawing: field, entities, HUD, screens
 - `game/src/shots.js` — deterministic scenes + autopilot
 - `game/src/main.js` — boot, fixed-step loop, screen state machine

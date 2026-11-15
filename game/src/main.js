@@ -10,6 +10,7 @@ import { Controls } from './input.js';
 import { createWorld } from './world.js';
 import { drawScreen } from './render.js';
 import { stageShot } from './shots.js';
+import { applyDraftPick, draftPickAt } from './draft.js';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -50,6 +51,7 @@ function saveBest() {
 function describe() {
   if (world.screen === 'title') return 'EMBERLINE — press Space or click to begin. Best ' + world.best + '.';
   if (world.screen === 'pause') return 'Paused. Press P to resume, R to restart.';
+  if (world.screen === 'draft') return `Wave ${world.wave} cleared — choose 1 of 3 upgrades (keys 1/2/3 or click a card).`;
   if (world.screen === 'won') return `Dawn breaks — you win! Score ${world.score}. Press Space to play again.`;
   if (world.screen === 'lost') return `Game over — score ${world.score}, wave ${world.wave}. Press Space to play again.`;
   return `Wave ${world.wave} of 10 — score ${world.score}, ${world.hearts} hearts, flare ${Math.min(100, Math.round((world.energy / 90) * 100))}%.`;
@@ -83,6 +85,24 @@ function liveStep(dt) {
     } else if (controls.hasAction('restart')) {
       controls.drainActions();
       world.begin();
+    }
+    return;
+  }
+  // The upgrade draft: keys 1/2/3 pick a card, a click on a card does too.
+  if (world.screen === 'draft') {
+    let pick = -1;
+    if (controls.hasAction('draft1')) pick = 0;
+    else if (controls.hasAction('draft2')) pick = 1;
+    else if (controls.hasAction('draft3')) pick = 2;
+    else if (controls.hasAction('confirm')) pick = draftPickAt(world, controls.pointer.x, controls.pointer.y);
+    if (pick >= 0) {
+      const taken = applyDraftPick(world, pick);
+      if (taken) {
+        controls.drainActions();
+        sound.pickup();
+      }
+    } else {
+      controls.drainActions();
     }
     return;
   }

@@ -28,6 +28,9 @@ export class Controls {
         if (k === 'p' || k === 'escape') this.queue.push('pause');
         if (k === 'm') this.queue.push('mute');
         if (k === 'r') this.queue.push('restart');
+        if (k === '1') this.queue.push('draft1');
+        if (k === '2') this.queue.push('draft2');
+        if (k === '3') this.queue.push('draft3');
         if (k === 'enter') this.queue.push('confirm');
       }
       this.keys.add(k);

@@ -4,6 +4,7 @@
 // reads this state; it never changes it.
 
 import { FIELD, TUNING, WISP_KINDS, PICKUP_KINDS, waveSpec } from './config.js';
+import { createDraft } from './draft.js';
 
 const TAU = Math.PI * 2;
 
@@ -32,7 +33,20 @@ export function createWorld(rng) {
     score: 0,
     best: 0,
     hearts: TUNING.hearts,
+    maxHearts: TUNING.hearts,
     energy: 0,
+    // Per-run copies of the numbers the upgrade draft can improve. The
+    // shared TUNING table never changes; the draft rewrites these.
+    flareRadius: TUNING.flareRadius,
+    flareCost: TUNING.flareCost,
+    dashCooldown: TUNING.dashCooldown,
+    magnetRadius: 150,
+    comboWindow: TUNING.comboWindow,
+    emberSpeed: TUNING.emberSpeed,
+    moteValue: TUNING.moteValue,
+    moteEnergy: TUNING.moteEnergy,
+    draft: null,
+    upgradesTaken: {},
     comboChain: 0,
     comboTimer: 0,
     comboMult: 1,
@@ -105,6 +119,7 @@ export function createWorld(rng) {
       turn: rng.range(-1.4, 1.4),
       speed: base.speed,
       life: TUNING.wispLifetime,
+      age: 0,
       wobble: rng.range(0, TAU),
       child: !!child,
     });
@@ -154,26 +169,31 @@ export function createWorld(rng) {
   }
 
   function endWave() {
-    state.wavePhase = 'intermission';
-    state.intermission = TUNING.intermission;
     state.energy = Math.min(100, state.energy + 15);
     if (state.wave >= TUNING.totalWaves) {
+      state.wavePhase = 'intermission';
       state.screen = 'won';
       state.stats.bestCombo = state.bestCombo;
       return;
     }
-    say(`Wave ${state.wave} cleared — dawn is closer`, 2);
+    // Between waves the keeper drafts one upgrade, then the next wave
+    // opens only once a card is picked. Play is fully paused meanwhile.
+    state.wavePhase = 'draft';
+    createDraft(state, rng);
+    state.screen = 'draft';
+    state.message = '';
+    state.messageTimer = 0;
   }
 
   function collectMote(mote, index) {
     state.motes.splice(index, 1);
     const nearWisp = state.wisps.some((w) => dist(w, mote) < TUNING.braveDistance);
     const mult = state.comboMult * (nearWisp ? TUNING.braveFactor : 1);
-    const gained = TUNING.moteValue * mult;
+    const gained = state.moteValue * mult;
     state.score += gained;
-    state.energy = Math.min(100, state.energy + TUNING.moteEnergy);
+    state.energy = Math.min(100, state.energy + state.moteEnergy);
     state.comboChain += 1;
-    state.comboTimer = TUNING.comboWindow;
+    state.comboTimer = state.comboWindow;
     state.comboMult = Math.min(TUNING.comboMax, 1 + Math.floor(state.comboChain / TUNING.comboStep));
     if (state.comboMult > state.bestCombo) state.bestCombo = state.comboMult;
     state.stats.motes += 1;
@@ -198,15 +218,15 @@ export function createWorld(rng) {
   }
 
   function castFlare(sound) {
-    if (state.energy < TUNING.flareCost) return false;
-    state.energy -= TUNING.flareCost;
+    if (state.energy < state.flareCost) return false;
+    state.energy -= state.flareCost;
     state.stats.flares += 1;
     const e = state.ember;
     burst(e.x, e.y, '#ffe9a8', 40, 320);
     state.shake = Math.max(state.shake, 8);
     let cleared = 0;
     for (let i = state.wisps.length - 1; i >= 0; i -= 1) {
-      if (dist(state.wisps[i], e) <= TUNING.flareRadius) {
+      if (dist(state.wisps[i], e) <= state.flareRadius) {
         banishWisp(state.wisps[i], i, true);
         cleared += 1;
       }
@@ -272,11 +292,18 @@ export function createWorld(rng) {
     }
     if (driver.hasAction('dash') && e.dashCool <= 0) {
       e.dashLeft = TUNING.dashTime;
-      e.dashCool = TUNING.dashCooldown;
+      e.dashCool = state.dashCooldown;
       if (sound) sound.dash();
     }
-    const speed = e.dashLeft > 0 ? TUNING.dashSpeed : TUNING.emberSpeed;
-    if (e.dashLeft > 0) e.dashLeft -= dt;
+    const speed = e.dashLeft > 0 ? TUNING.dashSpeed : state.emberSpeed;
+    if (e.dashLeft > 0) {
+      e.dashLeft -= dt;
+      // A bright trail marks the dash, so the burst reads on screen.
+      state.particles.push({
+        x: e.x, y: e.y, vx: -e.vx * 0.1, vy: -e.vy * 0.1,
+        life: 0.3, maxLife: 0.3, size: 5, color: '#ffe9a8',
+      });
+    }
     e.vx = dir.x * speed;
     e.vy = dir.y * speed;
     e.x = clamp(e.x + e.vx * dt, 16, FIELD.width - 16);
@@ -312,7 +339,7 @@ export function createWorld(rng) {
       const m = state.motes[i];
       m.phase += dt * 3;
       const d = dist(m, e);
-      if (state.pickup === 'magnet' && d < 150) {
+      if (state.pickup === 'magnet' && d < state.magnetRadius) {
         const pull = 260 * dt;
         m.x += ((e.x - m.x) / (d || 1)) * pull;
         m.y += ((e.y - m.y) / (d || 1)) * pull;
@@ -348,6 +375,7 @@ export function createWorld(rng) {
     for (let i = state.wisps.length - 1; i >= 0; i -= 1) {
       const w = state.wisps[i];
       w.life -= dt;
+      w.age += dt;
       w.wobble += dt * 2;
       const spec = waveSpec(state.wave);
       const spd = spec.speed * w.speed * slowFactor * (w.child ? 0.6 : 1);
@@ -402,7 +430,18 @@ export function createWorld(rng) {
     state.wave = 0;
     state.score = 0;
     state.hearts = TUNING.hearts;
+    state.maxHearts = TUNING.hearts;
     state.energy = 0;
+    state.flareRadius = TUNING.flareRadius;
+    state.flareCost = TUNING.flareCost;
+    state.dashCooldown = TUNING.dashCooldown;
+    state.magnetRadius = 150;
+    state.comboWindow = TUNING.comboWindow;
+    state.emberSpeed = TUNING.emberSpeed;
+    state.moteValue = TUNING.moteValue;
+    state.moteEnergy = TUNING.moteEnergy;
+    state.draft = null;
+    state.upgradesTaken = {};
     state.comboChain = 0;
     state.comboTimer = 0;
     state.comboMult = 1;

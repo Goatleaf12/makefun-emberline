@@ -5,13 +5,13 @@
 export const FIELD = { width: 960, height: 600 };
 
 export const PALETTE = {
-  night: '#0b1026',
-  nightEdge: '#141b3d',
+  night: '#070a1e',
+  nightEdge: '#171233',
   ember: '#ffb347',
   emberHot: '#ff8c42',
   mote: '#ffd166',
   moteCore: '#fff3c4',
-  wisp: '#7dd3fc',
+  wisp: '#38bdf8',
   wispEdge: '#a78bfa',
   cream: '#fff7e6',
   dimCream: '#c9c2a8',
@@ -20,6 +20,20 @@ export const PALETTE = {
   ringDark: '#3a3f5e',
   flare: '#ffe9a8',
   danger: '#ff5d73',
+  nebulaViolet: '#6d28d9',
+  nebulaTeal: '#0e7490',
+  nebulaRose: '#be185d',
+  nebulaAmber: '#b45309',
+};
+
+// Each wisp kind now has its own unmistakable colour AND glow: sky-blue
+// drifter, violet chaser, magenta splitter, cyan swift. At thumbnail size
+// the player can tell at a glance which threat is coming.
+export const WISP_GLOWS = {
+  drifter: 'rgba(56,189,248,0.55)',
+  chaser: 'rgba(168,85,247,0.55)',
+  splitter: 'rgba(236,72,153,0.55)',
+  swift: 'rgba(34,211,238,0.55)',
 };
 
 export const TUNING = {
@@ -73,10 +87,10 @@ export function waveSpec(wave) {
 }
 
 export const WISP_KINDS = {
-  drifter: { radius: 15, speed: 0.62, score: 50, hue: '#7dd3fc' },
-  chaser: { radius: 15, speed: 0.95, score: 80, hue: '#c084fc' },
-  splitter: { radius: 19, speed: 0.55, score: 100, hue: '#f472b6' },
-  swift: { radius: 11, speed: 1.35, score: 60, hue: '#67e8f9' },
+  drifter: { radius: 15, speed: 0.62, score: 50, hue: '#38bdf8' },
+  chaser: { radius: 15, speed: 0.95, score: 80, hue: '#a855f7' },
+  splitter: { radius: 19, speed: 0.55, score: 100, hue: '#ec4899' },
+  swift: { radius: 11, speed: 1.35, score: 60, hue: '#22d3ee' },
 };
 
 export const PICKUP_KINDS = {

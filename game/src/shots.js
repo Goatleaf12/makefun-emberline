@@ -1,14 +1,13 @@
 // shots.js — deterministic scenes for the screenshots, played by an autopilot.
-//
 // A shot is a real run of the real rules: the autopilot steers Ember, fires
 // the flare, plants lanterns and picks drafts, stepping the world in fixed
 // 1/60 s slices from a seed. Same kind + same seed renders the same frame
-// every time, which is what makes the screenshots honest renders rather
-// than staged drawings.
+// every time, which is what makes the screenshots honest renders.
 
 import { createWorld, step, draftPick, effFlareCost, effFlareRadius } from './world.js';
-import { LANTERN_COST, SUN_COST } from './lanterns.js';
+import { LANTERN_COST, SUN_COST, STORM_COST } from './lanterns.js';
 import { makeCampaign, completeNight, buyMeta, chooseRelic, META_PRIORITY } from './campaign.js';
+import { defaultMastery, masteryGain, applyMasteryGain, masteryLevel, masteryTitle } from './mastery.js';
 
 // Draft picks the autopilot prefers, best first: lantern growth early,
 // then survival, then damage.
@@ -16,6 +15,7 @@ const DRAFT_PRIORITY = [
   'lantern-slot',
   'beam-long',
   'frost-lantern',
+  'storm-lantern',
   'wick-rapid',
   'heart',
   'motes-rich',
@@ -82,18 +82,21 @@ function autopilot(world) {
       if (dx * dx + dy * dy < 120 * 120) clear = false;
     }
     if (clear) {
-      // Once the frost card is taken, the second lantern is a frost one:
-      // the chill covers the lane the ember lanterns do not. Once the
-      // Sun Lantern is bought on the campaign map, the third is a sun one.
+      // Second lantern frost (once its card is taken), third storm
+      // (once its card is taken), fourth sun (once the map unlocks it).
       const hasFrost = world.lanterns.list.some((l) => l.kind === 'frost');
+      const hasStorm = world.lanterns.list.some((l) => l.kind === 'storm');
       const hasSun = world.lanterns.list.some((l) => l.kind === 'sun');
+      const n = world.lanterns.list.length;
       const lanternKind =
-        (world.upgrades.frost || 0) >= 1 && !hasFrost && world.lanterns.list.length >= 1
+        (world.upgrades.frost || 0) >= 1 && !hasFrost && n >= 1
           ? 'frost'
-          : (world.campaign?.meta.sun || 0) >= 1 && !hasSun && world.lanterns.list.length >= 2
-            ? 'sun'
-            : 'ember';
-      const cost = lanternKind === 'sun' ? SUN_COST : LANTERN_COST;
+          : (world.upgrades.storm || 0) >= 1 && !hasStorm && n >= 2
+            ? 'storm'
+            : (world.campaign?.meta.sun || 0) >= 1 && !hasSun && n >= 2
+              ? 'sun'
+              : 'ember';
+      const cost = lanternKind === 'sun' ? SUN_COST : lanternKind === 'storm' ? STORM_COST : LANTERN_COST;
       if (world.embers >= cost) actions.push({ kind: 'place', x: px, y: py, lanternKind });
     }
   }
@@ -276,6 +279,23 @@ export function stageShot(kind, seed, difficulty = 'normal') {
       if (world.boss && world.boss.age >= 1.0) break;
     }
     return { world, screen: 'play', view, campaign: world.campaign };
+  }
+  if (kind === 'lost') {
+    // Normal difficulty: the first seed whose campaign night falls
+    // stages the defeat screen — score, stats, restart, and the
+    // Lantern Mastery the run earned. Harsh is the fallback: almost
+    // every seed falls on night 1 there.
+    const stageLost = (run) => {
+      const gain = masteryGain(run.world, false);
+      view.mastery = applyMasteryGain(defaultMastery(), gain, false, run.world.stats.bosses);
+      view.masteryGain = { xp: gain, level: masteryLevel(view.mastery), title: masteryTitle(masteryLevel(view.mastery)) };
+      return { world: run.world, screen: 'lost', view, campaign: run.campaign };
+    };
+    for (let s = seed; s < seed + 24; s++) {
+      const run = playCampaign(s, 'normal');
+      if (run.screen === 'lost') return stageLost(run);
+    }
+    return stageLost(playCampaign(seed, 'harsh'));
   }
   return { world, screen: 'play', view, campaign: world.campaign };
 }

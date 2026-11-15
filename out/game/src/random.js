@@ -1,8 +1,6 @@
 // random.js — the run's only source of chance: a small seeded generator.
-//
 // Every mote, wisp, storm and draft card comes from this generator, so one
-// seed replays one run exactly. Shot scenes and balance probes lean on that:
-// same seed, same game, every time.
+// seed replays one run exactly: same seed, same game, every time.
 
 export function makeRng(seed) {
   let a = seed >>> 0;

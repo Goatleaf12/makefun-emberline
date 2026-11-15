@@ -1,13 +1,8 @@
 // daylight.js — the wandering light: one sky per wave, one light that moves.
-//
-// LANTERNWARD's signature system: every wave the night wears a different
-// sky, and a Dawn Star hangs over a different part of the field. The star
-// drifts slowly while its wave lasts, and the ground beneath it is lit.
-// A lantern planted inside the lit pool reaches 40% farther and fires 25%
-// faster; a mote gathered inside it pays +5. So the best ground changes
-// every wave, and placement is a fresh decision each time — the same
-// "the light moves every wave" shape the top of the board rewards, in
-// lantern form.
+// Every wave the night wears a different sky, and a Dawn Star hangs over
+// a different part of the field, drifting while its wave lasts. A lantern
+// inside the lit pool reaches 40% farther and fires 25% faster; a mote
+// gathered inside it pays +5. So the best ground changes every wave.
 //
 // Pure functions of (wave, waveTime) only: no generator, no mutation, no
 // wall clock. The light can never change a replay, a probe, or a shot.

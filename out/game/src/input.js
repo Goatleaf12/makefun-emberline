@@ -1,10 +1,8 @@
 // input.js — keyboard + pointer state for LANTERNWARD.
-//
 // The game reads input through a small action queue: keys that mean "do it
 // once" (confirm, flare, place, pause, restart, draft picks) are queued on
 // keydown so a quick tap can never fall between frames, while held keys and
-// the pointer give continuous steering. Shot mode never uses this module —
-// the autopilot drives the world directly.
+// the pointer give continuous steering.
 
 export function makeInput(canvas) {
   const input = {

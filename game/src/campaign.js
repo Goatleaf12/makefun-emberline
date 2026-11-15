@@ -1,14 +1,9 @@
 // campaign.js — the campaign of three nights: meta-progression between runs.
-//
-// One run of LANTERNWARD is a single night of ten waves. A campaign is
-// three nights in a row, each with its own objective and its own boss.
-// Between nights the keeper stands on the campaign map and spends Dawn
-// Shards — earned from beacon rings, the night's objective and the boss —
-// on permanent upgrades that carry into every later night: a heart, a
-// lantern slot, or the Sun Lantern itself. Draft upgrades carry over too,
-// lanterns on the field do not, and half the embers carry to the next
-// night. So the build grows across the campaign, and every night starts
-// stronger than the last — while the nights themselves get harder.
+// One run is a single night of ten waves; a campaign is three nights in
+// a row, each with its own objective and boss. Between nights the keeper
+// spends Dawn Shards on permanent upgrades that carry into every later
+// night. Draft upgrades carry over too, lanterns do not, and half the
+// embers carry — so the build grows while the nights get harder.
 //
 // Pure data and pure functions of (campaign, world) only: no DOM, no RNG,
 // no clock. The map screen, the shots and the probes all read this file.
@@ -73,9 +68,8 @@ export const META_SHOP = [
 ];
 
 // Dawn Relics: one is chosen on the campaign map before each night from
-// the second on, and lasts that night only. Each is a pure tuning lever —
-// no new rules to learn, no new art to read — so the choice is a real
-// decision, not a new system.
+// the second on, and lasts that night only. Each is a pure tuning lever,
+// so the choice is a real decision, not a new system.
 export const RELICS = [
   { id: 'twin-flames', name: 'Twin Flames', desc: 'Flare +80 px, +1 damage' },
   { id: 'golden-motes', name: 'Golden Motes', desc: 'Motes +5 score, +1 ember' },

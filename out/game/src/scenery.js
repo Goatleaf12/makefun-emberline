@@ -1,11 +1,8 @@
-// scenery.js — the night itself: moon, hills, pines, glowing mushrooms,
-// crystals, fireflies and falling ash.
-//
-// Pure decoration, one job: make the field feel like a place, not a void.
-// Everything here is seeded once at module load and animated only by
-// world.time, so a staged shot renders identically every run. It never
-// reads the run's generator and never mutates the world: the balance probe
-// cannot tell this file exists.
+// scenery.js — the night itself: moon, hills, pines, mushrooms,
+// crystals, fireflies and falling ash. Pure decoration, seeded once
+// at module load and animated only by world.time, so a staged shot
+// renders identically every run. It never reads the run's generator
+// and never mutates the world.
 
 import { FIELD } from './config.js';
 import { makeRng } from './random.js';

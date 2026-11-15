@@ -1,11 +1,8 @@
 // world.js — the whole run: Ember, motes, wisps, lanterns, waves, the boss.
-//
 // Pure logic, no DOM, no audio, no clock: every step is a fixed 1/60 s
-// slice driven by the caller's steering and actions, and every random draw
-// comes from the run's seeded generator. That is what makes a run
-// replayable, a shot stageable, and a balance probe honest. The browser
-// (main.js) owns screens and sound; it reads `world.events` each step and
-// plays the sounds the events name.
+// slice, and every random draw comes from the run's seeded generator.
+// That is what makes a run replayable, a shot stageable, and a balance
+// probe honest. The browser (main.js) owns screens and sound.
 
 import { FIELD, TUNE, WISP_KINDS, PICKUPS, waveSpec, DIFFICULTIES } from './config.js';
 import { makeRng, pick, fieldPoint } from './random.js';
@@ -17,6 +14,7 @@ import {
   updateLanterns,
   frostRadius,
   frostSlow,
+  stormChain,
   LANTERN_COST,
 } from './lanterns.js';
 import { makeUpgrades, rollDraft, applyUpgrade } from './draft.js';
@@ -30,8 +28,10 @@ import { makeCampaign, nightDef } from './campaign.js';
 // for this night; a fresh campaign starts night 1 with nothing. `mode`
 // is 'campaign' (three nights, then dawn) or 'endless' (waves without
 // end, no dawn, its own best score) or 'bossrush' (boss after boss,
-// each tougher than the last, its own best score).
-export function createWorld(seed, best = 0, difficulty = 'normal', campaign = null, mode = 'campaign') {
+// each tougher than the last, its own best score). `masteryBonus` is
+// the keeper's Lantern Mastery starting embers (0 at level 1, so the
+// balance probes — which run at level 1 — see no bonus at all).
+export function createWorld(seed, best = 0, difficulty = 'normal', campaign = null, mode = 'campaign', masteryBonus = 0) {
   const rng = makeRng(seed);
   const diff = DIFFICULTIES[difficulty] || DIFFICULTIES.normal;
   const camp = campaign || makeCampaign();
@@ -81,7 +81,7 @@ export function createWorld(seed, best = 0, difficulty = 'normal', campaign = nu
     // Boss Rush opens with two lanterns' worth of embers: the first
     // boss arrives at once, so the tower-defence loop must be live from
     // the first seconds, not after a wave of saving.
-    embers: mode === 'bossrush' ? 90 : camp.embersCarry,
+    embers: mode === 'bossrush' ? 90 + masteryBonus : camp.embersCarry + masteryBonus,
     score: 0,
     combo: 0,
     comboTimer: 0,
@@ -94,7 +94,7 @@ export function createWorld(seed, best = 0, difficulty = 'normal', campaign = nu
     moteTimer: 0,
     boss: null,
     shake: 0,
-    stats: { motes: 0, banished: 0, flares: 0, placed: 0, waves: 0, bosses: 0 },
+    stats: { motes: 0, banished: 0, flares: 0, placed: 0, waves: 0, bosses: 0, stormHits: 0 },
     events: [],
     banner: null, // big centre text on a boss kill, e.g. 'BOSS 1 DOWN!'
   };
@@ -137,6 +137,7 @@ function syncLanterns(world) {
   l.range = 175 + u.lanternRange;
   l.cooldown = 1.0 * u.lanternCooldown;
   l.damage = 1 + u.lanternDamage;
+  l.stormChain = stormChain(u);
 }
 
 // --- spawning ------------------------------------------------------------
@@ -397,7 +398,7 @@ function applyPickup(world, kind) {
 
 export function openDraft(world) {
   world.phase = 'draft';
-  world.draftOptions = rollDraft(world.rng, world.upgrades);
+  world.draftOptions = rollDraft(world.rng, world.upgrades, !!world.stormUnlocked);
   world.events.push('draft');
 }
 
@@ -454,9 +455,8 @@ function stepWisps(world, dt) {
   const e = world.ember;
   const slow = world.slowTimer > 0 ? 0.5 : 1;
   const spec = waveSpec(world.wave, world.difficulty, world.night, world.mode === 'endless');
-  // Frost lanterns: a wisp standing in any frost aura moves slower. The
-  // strongest aura covering it wins; a lit frost lantern's aura reaches
-  // 40% farther, like an ember lantern's range in the Dawn Star's light.
+  // Frost lanterns: a wisp in any frost aura moves slower; a lit frost
+  // lantern's aura reaches 40% farther, like an ember lantern's range.
   const frostR = frostRadius(world.upgrades);
   const frostS = frostSlow(world.upgrades);
   const frostAuras = [];
@@ -635,20 +635,30 @@ export function step(world, dt, steer, dashHeld, actions) {
   for (const action of actions || []) {
     if (action.kind === 'flare') fireFlare(world);
     if (action.kind === 'place') {
-      const kind = action.lanternKind === 'frost' ? 'frost' : action.lanternKind === 'sun' ? 'sun' : 'ember';
+      const kind = { frost: 'frost', sun: 'sun', storm: 'storm' }[action.lanternKind] || 'ember';
       const cost = lanternCost(kind);
       // Frost lanterns need the Frost Lantern draft card first; sun
-      // lanterns need the Sun Lantern meta upgrade from the campaign map.
+      // lanterns need the Sun Lantern meta upgrade from the campaign map;
+      // storm lanterns need the Storm Lantern draft card first.
       if (kind === 'frost' && (world.upgrades.frost || 0) < 1) {
         world.events.push('placefail');
       } else if (kind === 'sun' && (!world.campaign || world.campaign.meta.sun < 1)) {
+        world.events.push('placefail');
+      } else if (kind === 'storm' && (world.upgrades.storm || 0) < 1) {
         world.events.push('placefail');
       } else if (canPlaceKind(world.lanterns, world.embers, kind)) {
         world.embers -= cost;
         placeLantern(world.lanterns, action.x, action.y, kind);
         world.stats.placed++;
         world.events.push('place');
-        burst(world, action.x, action.y, kind === 'frost' ? '#7dd3fc' : kind === 'sun' ? '#fde047' : '#fde68a', 12, 120);
+        burst(
+          world,
+          action.x,
+          action.y,
+          kind === 'frost' ? '#7dd3fc' : kind === 'sun' ? '#fde047' : kind === 'storm' ? '#c48dff' : '#fde68a',
+          12,
+          120,
+        );
       } else {
         world.events.push('placefail');
       }
@@ -667,7 +677,16 @@ export function step(world, dt, steer, dashHeld, actions) {
 
   stepMotes(world, dt);
   stepWisps(world, dt);
-  updateLanterns(world.lanterns, world.wisps, dt, (w, dmg, src) => hurtWisp(world, w, dmg, src), lightState(world));
+  updateLanterns(
+    world.lanterns,
+    world.wisps,
+    dt,
+    (w, dmg, src) => {
+      if (src === 'storm') world.stats.stormHits++;
+      hurtWisp(world, w, dmg, src);
+    },
+    lightState(world),
+  );
   stepCollisions(world);
   if (world.phase !== 'play') return;
 

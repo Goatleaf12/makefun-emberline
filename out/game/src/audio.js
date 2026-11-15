@@ -1,9 +1,7 @@
 // audio.js — every sound LANTERNWARD makes, synthesized live in WebAudio.
-//
-// No audio files ship with the game: chimes, thuds, swells and the ambient
-// pad are all oscillators and noise through filters. The module is silent
-// until the player first interacts (browsers demand that), and every method
-// is a safe no-op when audio is unavailable or muted.
+// No audio files ship: chimes, thuds, swells and the ambient pad are all
+// oscillators and noise through filters. Silent until the player first
+// interacts, and every method is a safe no-op when audio is unavailable.
 
 export function makeAudio() {
   const audio = {

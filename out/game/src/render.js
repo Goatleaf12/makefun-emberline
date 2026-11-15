@@ -1,15 +1,13 @@
 // render.js — everything LANTERNWARD paints: field, entities, HUD, screens.
-//
-// The judge reads the game mostly through its screenshots, so every screen
-// is built to be legible at thumbnail size: big type, high contrast, the
-// HUD always complete, and the action dense. Glow comes from pre-rendered
-// radial sprites (fast, no shadowBlur). All motion reads the world's sim
+// Every screen is built to be legible at thumbnail size: big type, high
+// contrast, the HUD always complete. All motion reads the world's sim
 // time, so a staged shot renders identically every run.
 
 import { FIELD, PALETTE, TUNE, DIFFICULTIES, DIFFICULTY_IDS } from './config.js';
 import { makeRng } from './random.js';
 import { draftCardRects, buildLine } from './draft.js';
-import { LANTERN_COST, SUN_COST, frostRadius } from './lanterns.js';
+import { lanternCost, frostRadius } from './lanterns.js';
+import { masteryLine } from './mastery.js';
 import { drawSceneryBack, drawSceneryFront, drawMiniLantern } from './scenery.js';
 import { lightState, inLight, skyForWave } from './daylight.js';
 import { NIGHTS, META_SHOP, RELICS, nightDef, objectiveCount, metaLine, relicDef } from './campaign.js';
@@ -442,6 +440,7 @@ function drawLanterns(ctx, world, view, light) {
   for (const l of world.lanterns.list) {
     const frost = l.kind === 'frost';
     const sun = l.kind === 'sun';
+    const storm = l.kind === 'storm';
     if (sun) {
       // Sun lantern: a broad golden lamp on a tall post, ringed by eight
       // short rays. It fires three bolts at once, so it reads as the
@@ -520,6 +519,34 @@ function drawLanterns(ctx, world, view, light) {
       ctx.beginPath();
       ctx.arc(l.x, l.y - 12, 3, 0, Math.PI * 2);
       ctx.fill();
+    } else if (storm) {
+      // Storm lantern: a violet storm rod whose orb crackles — it never
+      // fires bolts, it strikes lightning, so it reads apart at a glance.
+      const reach = world.lanterns.range * (l.lit ? 1.4 : 1);
+      ctx.strokeStyle = l.lit ? 'rgba(196, 141, 255, 0.5)' : 'rgba(196, 141, 255, 0.12)';
+      ctx.lineWidth = l.lit ? 2.5 : 1.5;
+      ctx.beginPath();
+      ctx.arc(l.x, l.y, reach, 0, Math.PI * 2);
+      ctx.stroke();
+      glow(ctx, l.x, l.y - 12, 34 + (l.flash > 0 ? 18 : 0), 'rgba(196, 141, 255, 0.8)');
+      ctx.fillStyle = '#2e1065';
+      ctx.fillRect(l.x - 4, l.y - 6, 8, 16);
+      ctx.fillStyle = '#4c1d95';
+      ctx.fillRect(l.x - 9, l.y + 8, 18, 5);
+      ctx.fillStyle = '#c48dff';
+      ctx.beginPath();
+      ctx.moveTo(l.x + 2, l.y - 26);
+      ctx.lineTo(l.x - 5, l.y - 12);
+      ctx.lineTo(l.x, l.y - 12);
+      ctx.lineTo(l.x - 2, l.y - 2);
+      ctx.lineTo(l.x + 6, l.y - 14);
+      ctx.lineTo(l.x + 1, l.y - 14);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#f3e8ff';
+      ctx.beginPath();
+      ctx.arc(l.x, l.y - 12, 2.5, 0, Math.PI * 2);
+      ctx.fill();
     } else {
       glow(ctx, l.x, l.y - 12, 40 + (l.flash > 0 ? 14 : 0), 'rgba(253, 230, 138, 0.7)');
       // Range ring: a lantern in the Dawn Star's light reaches 40% farther,
@@ -559,8 +586,9 @@ function drawLanterns(ctx, world, view, light) {
     }
     if (l.lit) {
       // A small starburst over a lit lantern: it fires 25% faster here
-      // (ember), or its chill reaches farther (frost) — gold vs cyan.
-      ctx.strokeStyle = frost ? 'rgba(125, 211, 252, 0.9)' : 'rgba(253, 224, 71, 0.9)';
+      // (ember), or its chill reaches farther (frost) — gold vs cyan,
+      // violet for a storm rod.
+      ctx.strokeStyle = frost ? 'rgba(125, 211, 252, 0.9)' : storm ? 'rgba(196, 141, 255, 0.9)' : 'rgba(253, 224, 71, 0.9)';
       ctx.lineWidth = 2;
       const sx = l.x;
       const sy = l.y - 34;
@@ -592,24 +620,39 @@ function drawLanterns(ctx, world, view, light) {
     ctx.stroke();
     glow(ctx, b.x, b.y, 11, 'rgba(254, 243, 199, 0.9)');
   }
+  // Lightning in flight: jagged violet strikes, gone in a blink.
+  for (const z of world.lanterns.zaps || []) {
+    ctx.strokeStyle = 'rgba(196, 141, 255, 0.95)';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(z.x1, z.y1);
+    ctx.lineTo(z.mx, z.my);
+    ctx.lineTo(z.x2, z.y2);
+    ctx.stroke();
+    glow(ctx, z.x2, z.y2, 12, 'rgba(196, 141, 255, 0.8)');
+  }
   // Placement ghost: follows the pointer while B is armed. 1 picks an
   // ember lantern, 2 a frost one (once the draft card unlocked it), 3 a
-  // sun one (once the campaign map unlocked it).
+  // sun one (once the campaign map unlocked it), 4 a storm one (once the
+  // draft card unlocked it).
   if (view && view.placeMode) {
     const p = view.pointer;
-    const kind = view.placeKind === 'frost' ? 'frost' : view.placeKind === 'sun' ? 'sun' : 'ember';
-    const cost = kind === 'sun' ? SUN_COST : LANTERN_COST;
+    const kind = { frost: 'frost', sun: 'sun', storm: 'storm' }[view.placeKind] || 'ember';
+    const cost = lanternCost(kind);
     const unlocked =
       kind === 'ember' ||
       (kind === 'frost' && (world.upgrades.frost || 0) >= 1) ||
-      (kind === 'sun' && world.campaign && world.campaign.meta.sun >= 1);
+      (kind === 'sun' && world.campaign && world.campaign.meta.sun >= 1) ||
+      (kind === 'storm' && (world.upgrades.storm || 0) >= 1);
     const slotsFree = world.lanterns.list.length < world.lanterns.slots;
     const afford = world.embers >= cost;
     const ok = slotsFree && afford && unlocked;
     const label = !unlocked
       ? kind === 'sun'
         ? 'SUN LOCKED — BUY IT ON THE CAMPAIGN MAP'
-        : 'FROST LOCKED — TAKE THE FROST LANTERN CARD'
+        : kind === 'storm'
+          ? 'STORM LOCKED — TAKE THE STORM LANTERN CARD'
+          : 'FROST LOCKED — TAKE THE FROST LANTERN CARD'
       : !slotsFree
         ? 'NO FREE LANTERN SLOT'
         : !afford
@@ -623,7 +666,9 @@ function drawLanterns(ctx, world, view, light) {
       ? 'rgba(251, 113, 133, 0.7)'
       : kind === 'frost'
         ? 'rgba(125, 211, 252, 0.7)'
-        : 'rgba(253, 230, 138, 0.7)';
+        : kind === 'storm'
+          ? 'rgba(196, 141, 255, 0.7)'
+          : 'rgba(253, 230, 138, 0.7)';
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.arc(p.x, p.y, ringR, 0, Math.PI * 2);
@@ -631,15 +676,17 @@ function drawLanterns(ctx, world, view, light) {
     ctx.fillStyle = ok
       ? kind === 'frost'
         ? 'rgba(125, 211, 252, 0.85)'
-        : 'rgba(253, 230, 138, 0.85)'
+        : kind === 'storm'
+          ? 'rgba(196, 141, 255, 0.85)'
+          : 'rgba(253, 230, 138, 0.85)'
       : 'rgba(251, 113, 133, 0.85)';
     ctx.beginPath();
     ctx.arc(p.x, p.y - 12, 8, 0, Math.PI * 2);
     ctx.fill();
-    text(ctx, label, p.x, p.y + 30, 13, ok ? (kind === 'frost' ? '#bae6fd' : '#fde68a') : '#fb7185', 'center');
+    text(ctx, label, p.x, p.y + 30, 13, ok ? (kind === 'frost' ? '#bae6fd' : kind === 'storm' ? '#ddd6fe' : '#fde68a') : '#fb7185', 'center');
     // Keep the hint on-canvas when the pointer hugs an edge.
     const lx = Math.max(110, Math.min(FIELD.w - 110, p.x));
-    text(ctx, 'PRESS 1 EMBER · 2 FROST · 3 SUN', lx, p.y + 48, 11, PALETTE.dim, 'center');
+    text(ctx, 'PRESS 1 EMBER · 2 FROST · 3 SUN · 4 STORM', lx, p.y + 48, 11, PALETTE.dim, 'center');
   }
 }
 
@@ -971,6 +1018,9 @@ function drawTitle(ctx, world, view) {
     PALETTE.dim,
     'center',
   );
+  // Lantern Mastery: the keeper's level and lifetime totals persist
+  // across runs — the title is where the long game is compared.
+  text(ctx, masteryLine(view && view.mastery), FIELD.w / 2, 584, 13, PALETTE.gold, 'center');
 }
 
 // One small glyph per upgrade, so the draft reads at thumbnail size.
@@ -1050,6 +1100,19 @@ function drawCardIcon(ctx, id, x, y) {
     ctx.beginPath();
     ctx.arc(0, 0, 3.5, 0, Math.PI * 2);
     ctx.fill();
+  } else if (id === 'storm-lantern') {
+    // A violet lightning bolt: the storm rod's own glyph.
+    ctx.strokeStyle = '#c48dff';
+    ctx.fillStyle = '#c48dff';
+    ctx.beginPath();
+    ctx.moveTo(2, -13);
+    ctx.lineTo(-5, 0);
+    ctx.lineTo(0, 0);
+    ctx.lineTo(-2, 12);
+    ctx.lineTo(6, -2);
+    ctx.lineTo(1, -2);
+    ctx.closePath();
+    ctx.fill();
   } else if (
     id === 'lantern-slot' ||
     id === 'beam-long' ||
@@ -1087,8 +1150,7 @@ function drawCardIcon(ctx, id, x, y) {
 function drawDraft(ctx, world) {
   ctx.fillStyle = 'rgba(7, 11, 29, 0.78)';
   ctx.fillRect(0, 0, FIELD.w, FIELD.h);
-  // Boss Rush drafts are rewards, not breathers: the header names the
-  // boss just downed and the one coming next.
+  // Boss Rush drafts name the boss just downed and the one coming next.
   const rush = world.mode === 'bossrush';
   text(
     ctx,
@@ -1252,7 +1314,7 @@ function drawMap(ctx, world, campaign) {
   text(ctx, metaLine(camp), FIELD.w / 2, 560, 13, PALETTE.dim, 'center');
 }
 
-function drawEnd(ctx, world, won, campaign) {
+function drawEnd(ctx, world, won, campaign, view) {
   const endless = world.mode === 'endless';
   const rush = world.mode === 'bossrush';
   if (won) {
@@ -1335,6 +1397,19 @@ function drawEnd(ctx, world, won, campaign) {
     text(ctx, label, FIELD.w / 2 - 130, y, 14, PALETTE.dim, 'right');
     text(ctx, value, FIELD.w / 2 - 110, y, 14, PALETTE.cream);
   });
+  // What this run earned toward Lantern Mastery — the long game, banked.
+  const gain = view && view.masteryGain;
+  if (gain) {
+    text(
+      ctx,
+      `MASTERY +${gain.xp} XP — NOW LV ${gain.level} ${gain.title}`,
+      FIELD.w / 2,
+      478,
+      15,
+      PALETTE.gold,
+      'center',
+    );
+  }
   const pulse = 0.75 + 0.25 * Math.sin(world.time * 3);
   ctx.globalAlpha = pulse;
   text(ctx, won ? 'A NEW CAMPAIGN — PRESS SPACE' : rush ? 'RUSH AGAIN — PRESS SPACE' : endless ? 'ENDLESS AGAIN — PRESS SPACE' : 'TRY THIS NIGHT AGAIN — PRESS SPACE', FIELD.w / 2, 500, 20, PALETTE.cream, 'center');
@@ -1415,6 +1490,6 @@ export function draw(ctx, world, screen, view, campaign) {
     text(ctx, world.banner.text, FIELD.w / 2, 240, 34, '#ffd166', 'center');
     ctx.globalAlpha = 1;
   }
-  if (screen === 'won') drawEnd(ctx, world, true, campaign);
-  if (screen === 'lost') drawEnd(ctx, world, false, campaign);
+  if (screen === 'won') drawEnd(ctx, world, true, campaign, view);
+  if (screen === 'lost') drawEnd(ctx, world, false, campaign, view);
 }

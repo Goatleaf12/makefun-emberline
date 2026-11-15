@@ -1,13 +1,11 @@
 // draft.js — the between-wave upgrade draft: the run's build choices.
-//
 // After each wave clears (1–9), play pauses and three cards are offered
-// from a pool of twelve. Each card may be taken a few times; the run's
-// build is the sum of its picks. Lantern cards grow the tower-defence side,
-// keeper cards grow Ember. Picks are deterministic from the run's seeded
+// from the pool. Each card may be taken a few times; the run's build is
+// the sum of its picks. Picks are deterministic from the run's seeded
 // generator, and cards are clickable or picked with keys 1/2/3.
 
-// One upgrade: id, name, one-line effect, how many times it may be taken,
-// and the function that applies one take to the run's upgrade state.
+// One upgrade: id, name, one-line effect, max takes, and the function
+// that applies one take to the run's upgrade state.
 export const UPGRADES = [
   {
     id: 'heart',
@@ -73,6 +71,13 @@ export const UPGRADES = [
     apply: (u) => { u.frost = (u.frost || 0) + 1; },
   },
   {
+    id: 'storm-lantern',
+    name: 'Storm Lantern',
+    desc: 'Unlock storm lanterns: lightning chains',
+    max: 2,
+    apply: (u) => { u.storm = (u.storm || 0) + 1; },
+  },
+  {
     id: 'lantern-slot',
     name: 'Lantern Slot',
     desc: '+1 lantern you may plant',
@@ -120,13 +125,16 @@ export function makeUpgrades() {
     lanternCooldown: 1, // multiplier on the base 0.85 s
     lanternDamage: 0,
     frost: 0, // takes of the Frost Lantern card: 0 = frost lanterns locked
+    storm: 0, // takes of the Storm Lantern card: 0 = storm lanterns locked
     taken: {}, // id -> takes so far
   };
 }
 
 // Three distinct cards the run may still take, drawn from the generator.
-export function rollDraft(rng, upgrades) {
-  const pool = UPGRADES.filter((u) => (upgrades.taken[u.id] || 0) < u.max);
+// The Storm Lantern card joins the pool only at Mastery level 2: the
+// probes run at level 1, so their drafts stay exactly the v20 ones.
+export function rollDraft(rng, upgrades, allowStorm = false) {
+  const pool = UPGRADES.filter((u) => (u.id !== 'storm-lantern' || allowStorm) && (upgrades.taken[u.id] || 0) < u.max);
   const options = [];
   while (options.length < 3 && pool.length > 0) {
     const i = Math.floor(rng() * pool.length);

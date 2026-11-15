@@ -12,6 +12,8 @@ LANTERNWARD — tower defense where the light itself moves every wave: an origin
 
 **Boss Rush (new in v13, polished in v20):** a third way to play, picked on the title screen (key **6** or click). No ordinary waves at all — one boss after another: the Gloom Herald, then the Hollow King, then the Night Itself, then the cycle repeats, each boss 8 HP tougher than the last. Between bosses you draft one upgrade card; the score is its own chase, with its own best score. A boss kill flashes **BOSS n DOWN!** across the field, the draft screen names the boss you just downed and the one coming next, the adds each boss spawns rotate one step every cycle so a repeated boss still brings a new fight, and downing the second boss unlocks **sun lanterns** for the rest of the rush. The title screen keeps the **records** of all three modes side by side. How many bosses can the last light down?
 
+**Storm Lanterns + Lantern Mastery (new in v21):** take the Storm Lantern draft card and you may plant a fourth kind of lantern — a violet storm rod that strikes lightning, chaining from wisp to wisp (55 embers, key **4** in place mode). The card joins the draft pool once the keeper reaches **Mastery level 2**. Every run that ends banks **Lantern Mastery** XP from its score and boss kills: six levels from Keeper to First Light, shown on the title screen beside the records and on the defeat screen as what the run earned, and each level past the first starts the next run with one extra ember. The screenshots now show the whole loop: boss fight, title, campaign map with the Dawn Shop, and the defeat screen with its restart.
+
 ## How to play
 
 - **Steer** with WASD / arrow keys, or hold the mouse and Ember follows

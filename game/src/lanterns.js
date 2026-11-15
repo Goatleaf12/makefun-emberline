@@ -1,19 +1,24 @@
-// lanterns.js — placeable light-lanterns: the tower-defence layer of LANTERNWARD.
-//
-// A lantern is a small tower the keeper plants on the field. It watches its
-// radius and fires a light bolt at the nearest wisp inside it. Lanterns cost
-// embers (the mote currency), live until the run ends, and grow through the
-// between-wave draft (range, fire rate, damage, extra slots). Placement is
-// the run's central decision: where to stand the light, and when to spend.
+// lanterns.js — placeable light-lanterns: the tower-defence layer.
+// A lantern watches its radius and fires at the nearest wisp inside
+// it. Lanterns cost embers, live until the run ends, and grow through
+// the draft (range, fire rate, damage, extra slots).
 
 import { FIELD } from './config.js';
 
 export const LANTERN_COST = 45; // embers per lantern, ember or frost kind
 export const SUN_COST = 60; // embers per sun lantern: it fires three bolts
+export const STORM_COST = 55; // embers per storm lantern: lightning chains
 
 // The cost of planting one lantern of a kind.
 export function lanternCost(kind) {
-  return kind === 'sun' ? SUN_COST : LANTERN_COST;
+  return kind === 'sun' ? SUN_COST : kind === 'storm' ? STORM_COST : LANTERN_COST;
+}
+
+// A storm lantern's chain: extra wisps its lightning jumps to after
+// the first, from the Storm Lantern card's takes (0 = locked).
+export function stormChain(upgrades) {
+  const takes = upgrades.storm || 0;
+  return takes > 0 ? 1 + takes : 0;
 }
 
 // A frost lantern's chill: how far its aura reaches and how much it slows
@@ -28,9 +33,10 @@ export function frostSlow(upgrades) {
   return takes > 0 ? Math.min(0.6, 0.35 + 0.1 * (takes - 1)) : 0;
 }
 
-// A fresh lantern set: two slots to start, no lanterns, no bolts in flight.
+// A fresh lantern set: two slots to start, no lanterns, no bolts or
+// lightning in flight.
 export function makeLanterns() {
-  return { list: [], bolts: [], slots: 2, range: 175, cooldown: 1.0, damage: 1 };
+  return { list: [], bolts: [], zaps: [], slots: 2, range: 175, cooldown: 1.0, damage: 1, stormChain: 0 };
 }
 
 // Whether the keeper may plant one more of a given kind right now.
@@ -95,6 +101,42 @@ export function updateLanterns(lanterns, wisps, dt, hurt, light) {
         (lantern.y - light.y) * (lantern.y - light.y) <=
         light.radius * light.radius;
     lantern.lit = lit;
+    if (lantern.kind === 'storm') {
+      // Storm lanterns never fire bolts: on cooldown they strike the
+      // nearest wisp in range, then jump to the nearest wisp within
+      // 140 px of the last strike, up to the chain count. Each strike
+      // is a zap for the renderer; its kink is a pure function of its
+      // endpoints, so rendering never consumes a random draw.
+      const range = lanterns.range * (lit ? 1.4 : 1);
+      const target = nearestWisp(lanterns, lantern, wisps, range);
+      if (target && lantern.cool <= 0) {
+        lantern.cool = lanterns.cooldown * (lit ? 0.8 : 1);
+        lantern.flash = 0.12;
+        let from = { x: lantern.x, y: lantern.y - 14 };
+        let cur = target;
+        const hit = new Set();
+        for (let n = 0; n < 1 + (lanterns.stormChain || 0) && cur; n++) {
+          hit.add(cur);
+          lanterns.zaps.push({ x1: from.x, y1: from.y, x2: cur.x, y2: cur.y, life: 0.18, mx: (from.x + cur.x) / 2 + ((from.x * 7 + cur.x * 13) % 36) - 18, my: (from.y + cur.y) / 2 + ((from.y * 11 + cur.y * 5) % 36) - 18 });
+          hurt(cur, lanterns.damage, 'storm');
+          from = { x: cur.x, y: cur.y };
+          let next = null;
+          let bd = 140 * 140;
+          for (const w of wisps) {
+            if (w.dead || hit.has(w)) continue;
+            const dx = w.x - from.x;
+            const dy = w.y - from.y;
+            const d = dx * dx + dy * dy;
+            if (d < bd) {
+              bd = d;
+              next = w;
+            }
+          }
+          cur = next;
+        }
+      }
+      continue;
+    }
     const range = lanterns.range * (lit ? 1.4 : 1);
     const target = nearestWisp(lanterns, lantern, wisps, range);
     if (target) {
@@ -179,4 +221,6 @@ export function updateLanterns(lanterns, wisps, dt, hurt, light) {
     }
   }
   lanterns.bolts = lanterns.bolts.filter((b) => !b.dead);
+  for (const z of lanterns.zaps) z.life -= dt;
+  lanterns.zaps = lanterns.zaps.filter((z) => z.life > 0);
 }

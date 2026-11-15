@@ -1,10 +1,8 @@
 // main.js — boot, the fixed-step loop, screens, and the ?shot= hook.
-//
-// The live game runs on requestAnimationFrame with a fixed 1/60 s step, so
-// the simulation never depends on frame rate. Shot mode (?shot=kind&seed=N)
-// stages a scene synchronously instead: it steps the real rules with the
-// autopilot, paints once, and raises window.__shotReady for the screenshot
-// driver. No wall clock ever enters the simulation itself.
+// The live game runs on requestAnimationFrame with a fixed 1/60 s step.
+// Shot mode (?shot=kind&seed=N) stages a scene synchronously instead:
+// it steps the real rules with the autopilot, paints once, and raises
+// window.__shotReady. No wall clock ever enters the simulation itself.
 
 import { FIELD } from './config.js';
 import { createWorld, step, draftPick } from './world.js';
@@ -14,6 +12,15 @@ import { makeAudio } from './audio.js';
 import { draftHit, draftCardRects } from './draft.js';
 import { stageShot } from './shots.js';
 import { makeCampaign, completeNight, buyMeta, chooseRelic, META_SHOP, RELICS } from './campaign.js';
+import {
+  loadMastery,
+  saveMastery,
+  masteryGain,
+  applyMasteryGain,
+  masteryLevel,
+  masteryTitle,
+  masteryBonus,
+} from './mastery.js';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -51,7 +58,12 @@ let pending = []; // one-shot world actions for the next fixed step
 
 function newRun(seed, difficulty = 'normal', camp = null, mode = 'campaign') {
   if (camp) campaign = camp;
-  world = createWorld(seed, loadBest(mode), difficulty, campaign, mode);
+  // Lantern Mastery: the keeper's level starts the run with a few
+  // extra embers (none at level 1); the run's end banks its XP. At
+  // level 2 the Storm Lantern card joins the draft pool for this run.
+  const mastery = loadMastery();
+  world = createWorld(seed, loadBest(mode), difficulty, campaign, mode, masteryBonus(masteryLevel(mastery)));
+  world.stormUnlocked = masteryLevel(mastery) >= 2;
   screen = 'title';
   view = {
     placeMode: false,
@@ -60,6 +72,8 @@ function newRun(seed, difficulty = 'normal', camp = null, mode = 'campaign') {
     mode,
     pointer: { x: 480, y: 300 },
     bests: { campaign: loadBest('campaign'), endless: loadBest('endless'), bossrush: loadBest('bossrush') },
+    mastery,
+    masteryGain: null,
   };
   pending = [];
   setStatus(mode === 'bossrush' ? 'Boss Rush — one boss after another. No waves, no dawn.' : mode === 'endless' ? 'ENDLESS NIGHT — no dawn, only waves. Survive.' : 'LANTERNWARD — hold the last light until dawn.');
@@ -125,12 +139,24 @@ function syncPhase() {
     completeNight(campaign, world);
     screen = 'won';
     saveBest(Math.max(loadBest(world.mode), world.score), world.mode);
+    bankMastery(true);
     setStatus('Dawn breaks — all three nights held!');
   } else if (world.phase === 'lost' && screen !== 'lost') {
     screen = 'lost';
     saveBest(Math.max(loadBest(world.mode), world.score), world.mode);
+    bankMastery(false);
     setStatus(world.mode === 'bossrush' ? 'The rush ends here — press Space to face the bosses again.' : world.mode === 'endless' ? 'The night claims you — press Space for another endless run.' : 'The light fades — press Space to try this night again.');
   }
+}
+
+// Bank this run's Lantern Mastery XP, once, when the run ends.
+function bankMastery(won) {
+  const gain = masteryGain(world, won);
+  const m1 = applyMasteryGain(loadMastery(), gain, won, world.stats.bosses);
+  saveMastery(m1);
+  view.mastery = m1;
+  const level = masteryLevel(m1);
+  view.masteryGain = { xp: gain, level, title: masteryTitle(level) };
 }
 
 function handleActions(actions) {
@@ -170,7 +196,7 @@ function handleActions(actions) {
         if (view.placeMode) view.placeKind = 'ember';
         setStatus(
           view.placeMode
-            ? 'Placing a lantern — click the field to plant (45 embers). 1 Ember · 2 Frost · B cancels.'
+            ? 'Placing a lantern — click the field to plant (45 embers). 1 Ember · 2 Frost · 3 Sun · 4 Storm · B cancels.'
             : 'Placement off.',
         );
       }
@@ -278,7 +304,7 @@ function handleActions(actions) {
           setStatus(`Relic chosen: ${relic.name} for Night ${campaign.night}.`);
         }
       } else if (screen === 'play' && view.placeMode) {
-        // Keys 1 / 2 / 3 switch the lantern kind while placing.
+        // Keys 1 / 2 / 3 / 4 switch the lantern kind while placing.
         if (action === 'draft1') {
           view.placeKind = 'ember';
           setStatus('Placing an ember lantern — click the field to plant (45 embers). B cancels.');
@@ -295,6 +321,15 @@ function handleActions(actions) {
             setStatus('Placing a sun lantern — click the field to plant (60 embers). B cancels.');
           } else {
             setStatus('Sun lanterns are locked — buy the Sun Lantern on the campaign map.');
+          }
+        } else if (action === 'draft4') {
+          if ((world.upgrades.storm || 0) >= 1) {
+            view.placeKind = 'storm';
+            setStatus('Placing a storm lantern — click the field to plant (55 embers). B cancels.');
+          } else if (masteryLevel(view.mastery) < 2) {
+            setStatus('Storm lanterns unlock at Mastery LV 2.');
+          } else {
+            setStatus('Storm lanterns are locked — take the Storm Lantern draft card.');
           }
         }
       } else if (screen === 'draft') {
@@ -342,6 +377,10 @@ if (shotKind) {
   campaign = staged.campaign || campaign;
   screen = staged.screen;
   view = staged.view;
+  // Shot pages show the keeper's mastery too: what the staged scene
+  // earned, or the stored mastery by default.
+  view.mastery = staged.view.mastery || loadMastery();
+  view.masteryGain = staged.view.masteryGain || null;
   fitCanvas();
   draw(ctx, world, screen, view, campaign);
   draw(ctx, world, screen, view, campaign);

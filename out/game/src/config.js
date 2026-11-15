@@ -1,10 +1,7 @@
 // config.js — every number LANTERNWARD is tuned from, in one place.
-//
-// The field is 960 by 600 logical pixels and the canvas scales it to the
-// window. Ten waves run from dusk to dawn; wave 10 ends with the Gloom
-// Herald. Five beacon rings light as the score climbs. Hearts, wisp speed
-// and wisp count vary by difficulty (First Light / Long Night / Endless
-// Dark). One flare that costs energy, and a mote economy that buys lanterns.
+// The field is 960 by 600; ten waves run from dusk to dawn, wave 10
+// ends with the Gloom Herald. Hearts, wisp speed and count vary by
+// difficulty; one flare, and a mote economy that buys lanterns.
 
 export const FIELD = { w: 960, h: 600 };
 
@@ -51,9 +48,8 @@ export const TUNE = {
 };
 
 // The three difficulties, picked on the title screen (keys 1 / 2 / 3).
-// Gentle is for learning the night; harsh is the same night, faster and
-// with one heart fewer. Normal is the intended game. Difficulty only
-// changes hearts, wisp speed and wisp count — never the rules.
+// Gentle is for learning; harsh is faster with one heart fewer.
+// Difficulty only changes hearts, wisp speed and count — never the rules.
 export const DIFFICULTIES = {
   gentle: { name: 'FIRST LIGHT', tag: 'gentle', hearts: 5, speed: 0.8, count: -2 },
   normal: { name: 'LONG NIGHT', tag: 'the intended night', hearts: 4, speed: 1, count: 0 },
@@ -61,13 +57,10 @@ export const DIFFICULTIES = {
 };
 export const DIFFICULTY_IDS = ['gentle', 'normal', 'harsh'];
 
-// What one wave throws at the keeper. Counts grow, speed grows, and new
-// kinds join as the night deepens. Wave 10 is the boss wave: the Herald
-// plus a slow trickle of drifters while it lives. Later campaign nights
-// are harder: night 2 adds gloom wisps and a little more of everything,
-// night 3 adds sparks and more still. Endless Night borrows the later
-// nights' kinds as its waves climb — gloom from wave 12, sparks from wave
-// 15 — and a boss every tenth wave, each one tougher than the last.
+// What one wave throws at the keeper. Counts and speed grow; new
+// kinds join as the night deepens. Wave 10 is the boss wave. Later
+// campaign nights are harder; Endless Night borrows the later nights'
+// kinds as its waves climb, and a boss every tenth wave.
 export function waveSpec(wave, difficulty = 'normal', night = 1, endless = false) {
   const kinds = ['drifter'];
   if (wave >= 2) kinds.push('chaser');

@@ -65,24 +65,28 @@ export const DIFFICULTY_IDS = ['gentle', 'normal', 'harsh'];
 // kinds join as the night deepens. Wave 10 is the boss wave: the Herald
 // plus a slow trickle of drifters while it lives. Later campaign nights
 // are harder: night 2 adds gloom wisps and a little more of everything,
-// night 3 adds sparks and more still.
-export function waveSpec(wave, difficulty = 'normal', night = 1) {
+// night 3 adds sparks and more still. Endless Night borrows the later
+// nights' kinds as its waves climb — gloom from wave 12, sparks from wave
+// 15 — and a boss every tenth wave, each one tougher than the last.
+export function waveSpec(wave, difficulty = 'normal', night = 1, endless = false) {
   const kinds = ['drifter'];
   if (wave >= 2) kinds.push('chaser');
   if (wave >= 3) kinds.push('splitter');
   if (wave >= 4) kinds.push('swift');
   if (wave >= 5) kinds.push('bulwark');
-  if (night >= 2 && wave >= 2) kinds.push('gloom');
-  if (night >= 3 && wave >= 3) kinds.push('spark');
+  if ((night >= 2 || (endless && wave >= 12)) && wave >= 2) kinds.push('gloom');
+  if ((night >= 3 || (endless && wave >= 15)) && wave >= 3) kinds.push('spark');
   const diff = DIFFICULTIES[difficulty] || DIFFICULTIES.normal;
   const nightCount = night >= 3 ? 1 : 0;
   const nightSpeed = night >= 3 ? 1.06 : night === 2 ? 1.03 : 1;
+  // Past wave 10 the endless horde itself speeds up, 1.5% a wave.
+  const endlessSpeed = endless && wave > 10 ? 1 + 0.015 * (wave - 10) : 1;
   return {
     count: Math.max(3, (wave === 1 ? 5 : 5 + wave * 2) + diff.count + nightCount),
-    speed: (wave === 1 ? 44 : 48 + wave * 7) * diff.speed * nightSpeed,
+    speed: (wave === 1 ? 44 : 48 + wave * 7) * diff.speed * nightSpeed * endlessSpeed,
     kinds,
     storm: TUNE.stormWaves.includes(wave),
-    boss: wave === 10,
+    boss: wave === 10 || (endless && wave % 10 === 0),
   };
 }
 

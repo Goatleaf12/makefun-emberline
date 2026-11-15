@@ -27,8 +27,10 @@ import { makeCampaign, nightDef } from './campaign.js';
 // is 'gentle' | 'normal' | 'harsh' and only changes hearts, wisp speed
 // and wisp count; the rules never change. `campaign` carries the nights
 // already held, the meta upgrades bought on the map, and the relic chosen
-// for this night; a fresh campaign starts night 1 with nothing.
-export function createWorld(seed, best = 0, difficulty = 'normal', campaign = null) {
+// for this night; a fresh campaign starts night 1 with nothing. `mode`
+// is 'campaign' (three nights, then dawn) or 'endless' (waves without
+// end, no dawn, its own best score).
+export function createWorld(seed, best = 0, difficulty = 'normal', campaign = null, mode = 'campaign') {
   const rng = makeRng(seed);
   const diff = DIFFICULTIES[difficulty] || DIFFICULTIES.normal;
   const camp = campaign || makeCampaign();
@@ -42,6 +44,7 @@ export function createWorld(seed, best = 0, difficulty = 'normal', campaign = nu
     time: 0,
     best,
     difficulty,
+    mode,
     campaign: camp,
     night,
     relic,
@@ -155,6 +158,23 @@ function spawnMote(world, storm) {
   });
 }
 
+// The boss's health: the night's boss in the campaign; in Endless Night
+// it grows 8 HP per boss wave (26, 34, 42, …), so later bosses are a
+// longer fight, not a repeat of the first.
+export function bossHp(world) {
+  if (world.mode === 'endless') return 26 + (Math.floor(world.wave / 10) - 1) * 8;
+  return nightDef(world.night).boss.hp;
+}
+
+// Which boss rules an endless boss wave: the Herald at wave 10, the
+// Hollow King at wave 20, the Night Itself from wave 30 on.
+function endlessBoss(world) {
+  const n = Math.floor(world.wave / 10);
+  if (n <= 1) return { name: 'THE GLOOM HERALD', spawn: 'drifter' };
+  if (n === 2) return { name: 'THE HOLLOW KING', spawn: 'chaser' };
+  return { name: 'THE NIGHT ITSELF', spawn: 'splitter' };
+}
+
 function spawnWisp(world, kind) {
   const spec = WISP_KINDS[kind];
   const p = edgePoint(world);
@@ -163,10 +183,8 @@ function spawnWisp(world, kind) {
     x: p.x,
     y: p.y,
     r: spec.radius,
-    // The boss wears its night's health: the Herald 26, the Hollow King
-    // 32, the Night Itself 40.
-    hp: kind === 'boss' ? nightDef(world.night).boss.hp : spec.hp,
-    maxHp: kind === 'boss' ? nightDef(world.night).boss.hp : spec.hp,
+    hp: kind === 'boss' ? bossHp(world) : spec.hp,
+    maxHp: kind === 'boss' ? bossHp(world) : spec.hp,
     speed: spec.speed,
     color: spec.color,
     heading: world.rng() * Math.PI * 2,
@@ -178,13 +196,18 @@ function spawnWisp(world, kind) {
   world.wisps.push(wisp);
   if (kind === 'boss') {
     world.boss = wisp;
+    if (world.mode === 'endless') {
+      const b = endlessBoss(world);
+      world.bossName = b.name;
+      world.bossSpawn = b.spawn;
+    }
     world.events.push('boss');
   }
   return wisp;
 }
 
 function startWave(world, wave) {
-  const spec = waveSpec(wave, world.difficulty, world.night);
+  const spec = waveSpec(wave, world.difficulty, world.night, world.mode === 'endless');
   world.wave = wave;
   world.waveTime = 0;
   world.waveActive = true;
@@ -381,7 +404,7 @@ function stepEmber(world, dt, steer, dashHeld) {
 function stepWisps(world, dt) {
   const e = world.ember;
   const slow = world.slowTimer > 0 ? 0.5 : 1;
-  const spec = waveSpec(world.wave, world.difficulty, world.night);
+  const spec = waveSpec(world.wave, world.difficulty, world.night, world.mode === 'endless');
   // Frost lanterns: a wisp standing in any frost aura moves slower. The
   // strongest aura covering it wins; a lit frost lantern's aura reaches
   // 40% farther, like an ember lantern's range in the Dawn Star's light.
@@ -619,13 +642,14 @@ export function step(world, dt, steer, dashHeld, actions) {
   // Wave cleared: nothing left to spawn, nothing left alive.
   if (world.waveActive && world.spawnQueue.length === 0 && world.wisps.length === 0) {
     world.waveActive = false;
-    if (world.wave >= 10) {
+    if (world.mode === 'endless' || world.wave < 10) {
+      // No dawn in Endless Night: the next wave just opens, forever.
+      openDraft(world);
+    } else {
       // The night is held: the last night wins the campaign, any earlier
       // night opens the campaign map instead.
       world.phase = world.night >= 3 ? 'won' : 'nightwon';
       world.events.push('win');
-    } else {
-      openDraft(world);
     }
   }
 }

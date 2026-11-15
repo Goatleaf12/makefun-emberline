@@ -731,41 +731,71 @@ function drawHud(ctx, world) {
   // Wave + its sky phase, centred: every wave of the night has a name.
   // Off-normal difficulties tag along, so a hard run reads as hard.
   // The night of the campaign tags along too: night 2 is not night 1.
+  // Endless Night has no night count: the wave itself is the number.
   const diffTag =
     world.difficulty && world.difficulty !== 'normal'
       ? ` · ${DIFFICULTIES[world.difficulty].name}`
       : '';
-  text(ctx, `WAVE ${world.wave}/10 — ${lightState(world).phase.name} · NIGHT ${world.night}/3${diffTag}`, FIELD.w / 2, 18, 17, PALETTE.cream, 'center');
+  text(
+    ctx,
+    world.mode === 'endless'
+      ? `ENDLESS NIGHT — WAVE ${world.wave}${diffTag}`
+      : `WAVE ${world.wave}/10 — ${lightState(world).phase.name} · NIGHT ${world.night}/3${diffTag}`,
+    FIELD.w / 2,
+    18,
+    17,
+    PALETTE.cream,
+    'center',
+  );
   for (let i = 0; i < TUNE.ringScores.length; i++) {
     ctx.fillStyle = i < world.ringsLit ? '#ffd166' : 'rgba(255,255,255,0.25)';
     ctx.beginPath();
     ctx.arc(FIELD.w / 2 - 50 + i * 25, 36, 5, 0, Math.PI * 2);
     ctx.fill();
   }
-  // Dawn progress: how much of the night is behind the keeper.
+  // Dawn progress: how much of the night is behind the keeper. In
+  // Endless Night the bar counts to the next boss wave instead.
   ctx.fillStyle = 'rgba(255,255,255,0.18)';
   ctx.fillRect(FIELD.w / 2 - 50, 46, 100, 4);
   ctx.fillStyle = '#ffd166';
-  ctx.fillRect(FIELD.w / 2 - 50, 46, 100 * (world.wave / 10), 4);
+  const progress = world.mode === 'endless' ? ((world.wave - 1) % 10) + 1 : world.wave;
+  ctx.fillRect(FIELD.w / 2 - 50, 46, 100 * (progress / 10), 4);
+  // A dark strip behind the y=58 line, so field sprites never muddy it:
+  // the storm warning, the boss call, and the objective all live there.
+  ctx.fillStyle = 'rgba(7, 11, 29, 0.5)';
+  ctx.fillRect(0, 50, FIELD.w, 18);
   if (world.stormTimer > 0) {
     text(ctx, '⚡ EMBER STORM — MOTES RAIN!', FIELD.w / 2, 58, 14, '#ff8c42', 'center');
   } else if (world.boss) {
     text(ctx, `${(world.bossName || 'THE GLOOM HERALD').toUpperCase()} IS HERE`, FIELD.w / 2, 58, 14, '#fb7185', 'center');
   } else {
     // This night's objective, with its live count — and the relic the
-    // keeper chose on the campaign map, when there is one.
-    const obj = nightDef(world.night).objective;
-    const count = objectiveCount(world);
-    const relic = world.relic ? relicDef(world.relic) : null;
-    text(
-      ctx,
-      `NIGHT ${world.night} GOAL: ${obj.label.toUpperCase()} ${count}/${obj.target}${relic ? `  ·  RELIC: ${relic.name.toUpperCase()}` : ''}`,
-      FIELD.w / 2,
-      58,
-      13,
-      PALETTE.gold,
-      'center',
-    );
+    // keeper chose on the campaign map, when there is one. Endless Night
+    // has no objective: only the waves, and the best score to beat.
+    if (world.mode === 'endless') {
+      text(
+        ctx,
+        `ENDLESS — NO DAWN, ONLY WAVES · BEST ${Math.max(world.best, world.score).toLocaleString('en-US')}`,
+        FIELD.w / 2,
+        58,
+        13,
+        PALETTE.gold,
+        'center',
+      );
+    } else {
+      const obj = nightDef(world.night).objective;
+      const count = objectiveCount(world);
+      const relic = world.relic ? relicDef(world.relic) : null;
+      text(
+        ctx,
+        `NIGHT ${world.night} GOAL: ${obj.label.toUpperCase()} ${count}/${obj.target}${relic ? `  ·  RELIC: ${relic.name.toUpperCase()}` : ''}`,
+        FIELD.w / 2,
+        58,
+        13,
+        PALETTE.gold,
+        'center',
+      );
+    }
   }
   if (world.boss) {
     const bw = 260;
@@ -825,6 +855,21 @@ function drawHud(ctx, world) {
   }
 }
 
+// Mode buttons on the title screen: the campaign, or Endless Night.
+// Keys 4 / 5 or click. The caller keeps the choice in view.mode.
+export function modeRects(w, h) {
+  const bw = 300;
+  const bh = 36;
+  const gap = 18;
+  const total = bw * 2 + gap;
+  const x0 = (w - total) / 2;
+  const y0 = 400;
+  return [
+    { id: 'campaign', key: '4', x: x0, y: y0, w: bw, h: bh },
+    { id: 'endless', key: '5', x: x0 + bw + gap, y: y0, w: bw, h: bh },
+  ];
+}
+
 // Difficulty buttons on the title screen: three in a row, keys 1 / 2 / 3
 // or click. The caller keeps the choice in view.difficulty.
 export function difficultyRects(w, h) {
@@ -862,7 +907,6 @@ function drawTitle(ctx, world, view) {
   text(ctx, 'You are Ember, keeper of the last light. Night sends its wisps.', FIELD.w / 2, 198, 17, PALETTE.cream, 'center');
   text(ctx, 'Gather motes. Spend embers to plant lanterns — they fight for you.', FIELD.w / 2, 224, 17, PALETTE.cream, 'center');
   text(ctx, 'Light all 5 beacon rings and survive 10 waves until dawn.', FIELD.w / 2, 250, 17, PALETTE.cream, 'center');
-  text(ctx, 'A campaign of THREE NIGHTS — your lanterns, upgrades and shards carry over.', FIELD.w / 2, 276, 15, PALETTE.gold, 'center');
   const lines = [
     'WASD / ARROWS or MOUSE — steer Ember',
     'SHIFT — dash      F — flare (banishes wisps)',
@@ -871,8 +915,26 @@ function drawTitle(ctx, world, view) {
     'P — pause      M — mute      R — restart',
     'Between waves: pick 1 of 3 upgrades — lanterns included',
   ];
-  lines.forEach((line, i) => text(ctx, line, FIELD.w / 2, 292 + i * 24, 15, PALETTE.dim, 'center'));
-  if (world.best > 0) text(ctx, `BEST SCORE ${world.best.toLocaleString('en-US')}`, FIELD.w / 2, 440, 16, PALETTE.gold, 'center');
+  lines.forEach((line, i) => text(ctx, line, FIELD.w / 2, 286 + i * 21, 15, PALETTE.dim, 'center'));
+  if (world.best > 0) text(ctx, `BEST SCORE ${world.best.toLocaleString('en-US')}`, FIELD.w / 2, 452, 14, PALETTE.gold, 'center');
+  // Mode row: two ways to play — the campaign of three nights, or waves
+  // without end. The run's second decision, before the first mote.
+  const selMode = (view && view.mode) || 'campaign';
+  const modes = [
+    { id: 'campaign', key: '4', name: 'CAMPAIGN', tag: 'three nights, one dawn' },
+    { id: 'endless', key: '5', name: 'ENDLESS NIGHT', tag: 'waves without end' },
+  ];
+  for (const rect of modeRects(FIELD.w, FIELD.h)) {
+    const m = modes.find((x) => x.id === rect.id);
+    const active = rect.id === selMode;
+    ctx.fillStyle = active ? 'rgba(255, 179, 71, 0.16)' : 'rgba(19, 26, 58, 0.9)';
+    ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+    ctx.strokeStyle = active ? '#ffd166' : '#475569';
+    ctx.lineWidth = active ? 2.5 : 1.5;
+    ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+    text(ctx, `${rect.key} · ${m.name}`, rect.x + rect.w / 2, rect.y + 14, 13, active ? PALETTE.gold : PALETTE.dim, 'center');
+    text(ctx, m.tag, rect.x + rect.w / 2, rect.y + 29, 11, PALETTE.dim, 'center');
+  }
   // Difficulty row: the run's first decision, before the first mote.
   const sel = (view && view.difficulty) || 'normal';
   for (const rect of difficultyRects(FIELD.w, FIELD.h)) {
@@ -1159,6 +1221,7 @@ function drawMap(ctx, world, campaign) {
 }
 
 function drawEnd(ctx, world, won, campaign) {
+  const endless = world.mode === 'endless';
   if (won) {
     // Dawn breaks: warm light rises from the horizon, and all five
     // beacon rings stand lit across it.
@@ -1181,10 +1244,14 @@ function drawEnd(ctx, world, won, campaign) {
     ctx.fillStyle = 'rgba(7, 11, 29, 0.78)';
     ctx.fillRect(0, 0, FIELD.w, FIELD.h);
   }
-  text(ctx, won ? 'DAWN BREAKS — ALL THREE NIGHTS HELD!' : 'THE LIGHT FADES', FIELD.w / 2, 122, won ? 38 : 44, won ? '#ffd166' : '#fb7185', 'center');
+  text(ctx, won ? 'DAWN BREAKS — ALL THREE NIGHTS HELD!' : endless ? 'THE NIGHT CLAIMS YOU' : 'THE LIGHT FADES', FIELD.w / 2, 122, won ? 38 : 44, won ? '#ffd166' : '#fb7185', 'center');
   text(
     ctx,
-    won ? 'All 5 rings lit, three nights held. The last light kept the dawn.' : `The wisps took the light on night ${world.night}, wave ${world.wave}.`,
+    won
+      ? 'All 5 rings lit, three nights held. The last light kept the dawn.'
+      : endless
+        ? `Endless Night — you held ${world.wave - 1} wave${world.wave - 1 === 1 ? '' : 's'} before the dark closed in.`
+        : `The wisps took the light on night ${world.night}, wave ${world.wave}.`,
     FIELD.w / 2,
     164,
     17,
@@ -1192,19 +1259,30 @@ function drawEnd(ctx, world, won, campaign) {
     'center',
   );
   const camp = campaign || world.campaign;
-  const rows = [
-    ['SCORE', world.score.toLocaleString('en-US')],
-    ['BEST', Math.max(world.best, world.score).toLocaleString('en-US')],
-    ['NIGHT', `${world.night} / 3`],
-    ['WAVES CLEARED', `${won ? 10 : world.wave - 1} / 10`],
-    ['BEACON RINGS', `${world.ringsLit} / 5`],
-    ['MOTES GATHERED', `${world.stats.motes}`],
-    ['WISPS BANISHED', `${world.stats.banished}`],
-    ['LANTERNS PLANTED', `${world.stats.placed}`],
-    ['BEST COMBO', `x${world.comboBest}`],
-    ['CAMPAIGN SCORE', camp ? camp.totalScore.toLocaleString('en-US') : '—'],
-    ['DAWN SHARDS', camp ? String(camp.shards) : '—'],
-  ];
+  const rows = endless
+    ? [
+        ['SCORE', world.score.toLocaleString('en-US')],
+        ['BEST', Math.max(world.best, world.score).toLocaleString('en-US')],
+        ['WAVES HELD', `${world.wave - 1}`],
+        ['BEACON RINGS', `${world.ringsLit} / 5`],
+        ['MOTES GATHERED', `${world.stats.motes}`],
+        ['WISPS BANISHED', `${world.stats.banished}`],
+        ['LANTERNS PLANTED', `${world.stats.placed}`],
+        ['BEST COMBO', `x${world.comboBest}`],
+      ]
+    : [
+        ['SCORE', world.score.toLocaleString('en-US')],
+        ['BEST', Math.max(world.best, world.score).toLocaleString('en-US')],
+        ['NIGHT', `${world.night} / 3`],
+        ['WAVES CLEARED', `${won ? 10 : world.wave - 1} / 10`],
+        ['BEACON RINGS', `${world.ringsLit} / 5`],
+        ['MOTES GATHERED', `${world.stats.motes}`],
+        ['WISPS BANISHED', `${world.stats.banished}`],
+        ['LANTERNS PLANTED', `${world.stats.placed}`],
+        ['BEST COMBO', `x${world.comboBest}`],
+        ['CAMPAIGN SCORE', camp ? camp.totalScore.toLocaleString('en-US') : '—'],
+        ['DAWN SHARDS', camp ? String(camp.shards) : '—'],
+      ];
   rows.forEach(([label, value], i) => {
     const y = 204 + i * 25;
     text(ctx, label, FIELD.w / 2 - 130, y, 14, PALETTE.dim, 'right');
@@ -1212,7 +1290,7 @@ function drawEnd(ctx, world, won, campaign) {
   });
   const pulse = 0.75 + 0.25 * Math.sin(world.time * 3);
   ctx.globalAlpha = pulse;
-  text(ctx, won ? 'A NEW CAMPAIGN — PRESS SPACE' : 'TRY THIS NIGHT AGAIN — PRESS SPACE', FIELD.w / 2, 500, 20, PALETTE.cream, 'center');
+  text(ctx, won ? 'A NEW CAMPAIGN — PRESS SPACE' : endless ? 'ENDLESS AGAIN — PRESS SPACE' : 'TRY THIS NIGHT AGAIN — PRESS SPACE', FIELD.w / 2, 500, 20, PALETTE.cream, 'center');
   ctx.globalAlpha = 1;
 }
 
@@ -1251,14 +1329,14 @@ export function draw(ctx, world, screen, view, campaign) {
       text(ctx, (world.bossName || 'THE GLOOM HERALD').toUpperCase(), FIELD.w / 2, 38, 34, '#fb7185', 'center');
       text(
         ctx,
-        `WAVE 10 — ${light.phase.name} · ${world.boss ? world.boss.maxHp : 26} HP · IT SPAWNS ${((world.bossSpawn || 'drifter') + 's').toUpperCase()}`,
+        `WAVE ${world.wave} — ${light.phase.name} · ${world.boss ? world.boss.maxHp : 26} HP · IT SPAWNS ${((world.bossSpawn || 'drifter') + 's').toUpperCase()}`,
         FIELD.w / 2,
         66,
         13,
         PALETTE.cream,
         'center',
       );
-      text(ctx, 'BANISH IT BEFORE DAWN', FIELD.w / 2, FIELD.h - 44, 16, PALETTE.gold, 'center');
+      text(ctx, world.mode === 'endless' ? 'BANISH IT — THE NIGHT HAS NO END' : 'BANISH IT BEFORE DAWN', FIELD.w / 2, FIELD.h - 44, 16, PALETTE.gold, 'center');
       text(ctx, 'LANTERNS IN THE DAWN LIGHT REACH 40% FARTHER', FIELD.w / 2, FIELD.h - 22, 12, PALETTE.dim, 'center');
       ctx.globalAlpha = 1;
       ctx.strokeStyle = `rgba(244, 63, 94, ${0.4 * a})`;

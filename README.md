@@ -8,6 +8,8 @@ LANTERNWARD — tower defense where the light itself moves every wave: an origin
 
 **A campaign of three nights (new in v11):** one night is ten waves; a campaign is three nights in a row, each with its own objective and its own boss — Night 1 First Light (light all 5 rings, the Gloom Herald), Night 2 The Long Dark (banish 40 wisps, the Hollow King, gloom wisps join), Night 3 Dawn's Edge (gather 120 motes, the Night Itself, spark wisps join). Between nights the campaign map opens: spend Dawn Shards (earned from rings, objectives and bosses) on permanent upgrades — an extra heart, a lantern slot, or the Sun Lantern — and choose one Dawn Relic for the coming night (Twin Flames, Golden Motes, or Stout Heart). Draft upgrades carry across nights, lanterns on the field do not, and half the embers carry over — so the build grows across the campaign while the nights get harder.
 
+**Endless Night (new in v12):** a second way to play, picked on the title screen (key **5** or click). No dawn, no last wave — waves without end, a boss every tenth wave (the Herald at 10, the Hollow King at 20, the Night Itself from 30 on, each one tougher than the last), gloom wisps joining from wave 12 and sparks from wave 15, and the ten skies cycling again and again as the night refuses to end. The score is its own chase, with its own best score. How long can the last light hold?
+
 ## How to play
 
 - **Steer** with WASD / arrow keys, or hold the mouse and Ember follows
@@ -55,6 +57,12 @@ LANTERNWARD — tower defense where the light itself moves every wave: an origin
   nights on one road (held / next / locked), the dawn shop (Ember Heart
   4 shards, Lantern Rack 5, Sun Lantern 6), and a free relic for the
   coming night (keys 4 / 5 / 6 or click). Space enters the next night.
+- **Endless Night (new in v12):** pick it on the title screen (key **5**
+  or click, **4** for the campaign). Waves without end, a boss every
+  tenth wave, each boss tougher than the last; gloom wisps from wave 12,
+  sparks from wave 15; the ten skies cycle again instead of reaching
+  dawn. No objective, no final wave — the run ends only when the hearts
+  run out, and the score is its own chase with its own best score.
 - **Pickups** appear on the field — Aegis Shield (blocks one hit), Mote
   Magnet (pulls motes to you), Slowlight (wisps drift slowly for 6 s).
   You hold one at a time; taking a new one replaces the old.
@@ -77,6 +85,8 @@ LANTERNWARD — tower defense where the light itself moves every wave: an origin
 a dense rain of motes with a bonus timer.
 **Campaign win:** hold all three nights — First Light, the Long Dark and
 Dawn's Edge — and dawn breaks for good.
+**Endless Night:** there is no win — only waves held. The run ends when
+the hearts run out, and the score is the story.
 
 ## Run it
 
@@ -88,7 +98,7 @@ node serve.ts
 No build step, no libraries, no network requests: vanilla JS + Canvas 2D
 with synthesised WebAudio sound, all art drawn procedurally.
 
-Deterministic scenes for screenshots: `/?shot=title|play|action|draft|end|boss|map|night2&seed=N`.
+Deterministic scenes for screenshots: `/?shot=title|play|action|draft|end|boss|map|night2|endless&seed=N`.
 
 ## Layout
 
@@ -101,11 +111,13 @@ Deterministic scenes for screenshots: `/?shot=title|play|action|draft|end|boss|m
   Dawn Star's drift, the lit pool, sunlit motes (new in v5)
 - `game/src/campaign.js` — the campaign of three nights: night defs,
   dawn shards, the meta shop, dawn relics (new in v11)
-- `game/src/world.js` — entities, waves, collisions, scoring
+- `game/src/world.js` — entities, waves, collisions, scoring, Endless
+  Night mode (new in v12)
 - `game/src/lanterns.js` — placeable fighting lanterns (slots, bolts, range)
 - `game/src/draft.js` — the between-wave upgrade draft (12 upgrades, 3 cards)
 - `game/src/render.js` — canvas drawing: field, entities, HUD, screens
-- `game/src/shots.js` — deterministic scenes + autopilot
+- `game/src/shots.js` — deterministic scenes + autopilot, incl. Endless
+  Night staging (new in v12)
 - `game/src/main.js` — boot, fixed-step loop, screen state machine
 - `main.ts` — entrypoint: copies game/ + screenshots/ to /output and
   writes dossier.json

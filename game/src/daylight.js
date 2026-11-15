@@ -43,11 +43,14 @@ export function skyForWave(wave) {
 
 // Where the Dawn Star is right now, and how far its light reaches.
 // It drifts on a slow loop around its anchor while the wave lasts.
+// In Endless Night the ten skies cycle again and again — the night
+// never reaches dawn, so the light keeps wandering instead.
 export function lightState(world) {
-  const phase = phaseForWave(world.wave);
+  const wave = world.mode === 'endless' ? ((world.wave - 1) % 10) + 1 : world.wave;
+  const phase = phaseForWave(wave);
   const t = world.waveTime;
-  const x = phase.anchor.x + Math.sin(t * 0.1 + world.wave * 1.7) * 46;
-  const y = phase.anchor.y + Math.cos(t * 0.07 + world.wave * 2.3) * 26;
+  const x = phase.anchor.x + Math.sin(t * 0.1 + wave * 1.7) * 46;
+  const y = phase.anchor.y + Math.cos(t * 0.07 + wave * 2.3) * 26;
   return {
     x: Math.max(40, Math.min(FIELD.w - 40, x)),
     y: Math.max(40, Math.min(FIELD.h - 40, y)),

@@ -8,7 +8,7 @@
 
 import { FIELD } from './config.js';
 import { createWorld, step, draftPick } from './world.js';
-import { draw, difficultyRects, mapShopRects, mapRelicRects } from './render.js';
+import { draw, difficultyRects, modeRects, mapShopRects, mapRelicRects } from './render.js';
 import { makeInput } from './input.js';
 import { makeAudio } from './audio.js';
 import { draftHit, draftCardRects } from './draft.js';
@@ -19,17 +19,18 @@ const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const statusEl = document.getElementById('status');
 
-function loadBest() {
+function loadBest(mode = 'campaign') {
   try {
-    return Number(localStorage.getItem('lanternward-best') || 0);
+    // Endless Night keeps its own best score, apart from the campaign's.
+    return Number(localStorage.getItem(mode === 'endless' ? 'lanternward-best-endless' : 'lanternward-best') || 0);
   } catch {
     return 0;
   }
 }
 
-function saveBest(value) {
+function saveBest(value, mode = 'campaign') {
   try {
-    localStorage.setItem('lanternward-best', String(value));
+    localStorage.setItem(mode === 'endless' ? 'lanternward-best-endless' : 'lanternward-best', String(value));
   } catch {
     // Private mode: the run still counts, it just is not remembered.
   }
@@ -45,16 +46,16 @@ const input = makeInput(canvas);
 let world = null;
 let campaign = makeCampaign();
 let screen = 'title'; // 'title' | 'play' | 'pause' | 'draft' | 'map' | 'won' | 'lost'
-let view = { placeMode: false, placeKind: 'ember', difficulty: 'normal', pointer: { x: 480, y: 300 } };
+let view = { placeMode: false, placeKind: 'ember', difficulty: 'normal', mode: 'campaign', pointer: { x: 480, y: 300 } };
 let pending = []; // one-shot world actions for the next fixed step
 
-function newRun(seed, difficulty = 'normal', camp = null) {
+function newRun(seed, difficulty = 'normal', camp = null, mode = 'campaign') {
   if (camp) campaign = camp;
-  world = createWorld(seed, loadBest(), difficulty, campaign);
+  world = createWorld(seed, loadBest(mode), difficulty, campaign, mode);
   screen = 'title';
-  view = { placeMode: false, placeKind: 'ember', difficulty, pointer: { x: 480, y: 300 } };
+  view = { placeMode: false, placeKind: 'ember', difficulty, mode, pointer: { x: 480, y: 300 } };
   pending = [];
-  setStatus('LANTERNWARD — hold the last light until dawn.');
+  setStatus(mode === 'endless' ? 'ENDLESS NIGHT — no dawn, only waves. Survive.' : 'LANTERNWARD — hold the last light until dawn.');
 }
 
 function startPlaying() {
@@ -62,6 +63,14 @@ function startPlaying() {
   // with the difficulty chosen on the title screen; the title world's
   // seed was only its animated backdrop.
   audio.unlock();
+  if (view.mode === 'endless') {
+    // Endless Night: waves without end, its own best score, no campaign.
+    campaign = makeCampaign();
+    newRun((Math.random() * 1e9) | 0, view.difficulty || 'normal', campaign, 'endless');
+    screen = 'play';
+    setStatus('Endless Night — survive as many waves as you can. No dawn is coming.');
+    return;
+  }
   campaign = makeCampaign();
   newRun((Math.random() * 1e9) | 0, view.difficulty || 'normal', campaign);
   screen = 'play';
@@ -108,12 +117,12 @@ function syncPhase() {
     // campaign total on the victory screen includes all three nights.
     completeNight(campaign, world);
     screen = 'won';
-    saveBest(Math.max(loadBest(), world.score));
+    saveBest(Math.max(loadBest(world.mode), world.score), world.mode);
     setStatus('Dawn breaks — all three nights held!');
   } else if (world.phase === 'lost' && screen !== 'lost') {
     screen = 'lost';
-    saveBest(Math.max(loadBest(), world.score));
-    setStatus('The light fades — press Space to try this night again.');
+    saveBest(Math.max(loadBest(world.mode), world.score), world.mode);
+    setStatus(world.mode === 'endless' ? 'The night claims you — press Space for another endless run.' : 'The light fades — press Space to try this night again.');
   }
 }
 
@@ -125,9 +134,14 @@ function handleActions(actions) {
       else if (screen === 'won') startPlaying();
       else if (screen === 'lost') {
         // The campaign keeps its shards and meta: only this night restarts.
-        newRun((Math.random() * 1e9) | 0, world.difficulty, campaign);
+        // An endless run just starts again at wave 1.
+        newRun((Math.random() * 1e9) | 0, world.difficulty, campaign, world.mode);
         screen = 'play';
-        setStatus(`Night ${world.night} again — the night deepens. Hold the light.`);
+        setStatus(
+          world.mode === 'endless'
+            ? 'Endless Night again — wave 1. The night has no end.'
+            : `Night ${world.night} again — the night deepens. Hold the light.`,
+        );
       }
     } else if (action === 'pause') {
       if (screen === 'play') {
@@ -137,7 +151,7 @@ function handleActions(actions) {
         screen = 'play';
       }
     } else if (action === 'restart') {
-      newRun((Math.random() * 1e9) | 0, world ? world.difficulty : 'normal', campaign);
+      newRun((Math.random() * 1e9) | 0, world ? world.difficulty : 'normal', campaign, world ? world.mode : 'campaign');
     } else if (action === 'mute') {
       const muted = audio.toggleMute();
       setStatus(muted ? 'Sound off.' : 'Sound on.');
@@ -157,17 +171,29 @@ function handleActions(actions) {
       if (screen === 'play') pending.push({ kind: 'flare' });
     } else if (action === 'click') {
       if (screen === 'title') {
-        // A click on a difficulty button selects it; anywhere else starts.
-        const rects = difficultyRects(FIELD.w, FIELD.h);
-        const hit = rects.find(
+        // A click on a mode button picks the mode; on a difficulty button
+        // selects it; anywhere else starts.
+        const mRects = modeRects(FIELD.w, FIELD.h);
+        const mHit = mRects.find(
           (r) =>
             input.pointer.x >= r.x &&
             input.pointer.x <= r.x + r.w &&
             input.pointer.y >= r.y &&
             input.pointer.y <= r.y + r.h,
         );
-        if (hit) view.difficulty = hit.id;
-        else startPlaying();
+        if (mHit) view.mode = mHit.id;
+        else {
+          const rects = difficultyRects(FIELD.w, FIELD.h);
+          const hit = rects.find(
+            (r) =>
+              input.pointer.x >= r.x &&
+              input.pointer.x <= r.x + r.w &&
+              input.pointer.y >= r.y &&
+              input.pointer.y <= r.y + r.h,
+          );
+          if (hit) view.difficulty = hit.id;
+          else startPlaying();
+        }
       } else if (screen === 'map') {
         // A click on a shop card buys it; on a relic card chooses it;
         // anywhere else enters the next night.
@@ -195,9 +221,9 @@ function handleActions(actions) {
       } else if (screen === 'won') {
         startPlaying();
       } else if (screen === 'lost') {
-        newRun((Math.random() * 1e9) | 0, world.difficulty, campaign);
+        newRun((Math.random() * 1e9) | 0, world.difficulty, campaign, world.mode);
         screen = 'play';
-        setStatus(`Night ${world.night} again — the night deepens. Hold the light.`);
+        setStatus(world.mode === 'endless' ? 'Endless Night again — wave 1. The night has no end.' : `Night ${world.night} again — the night deepens. Hold the light.`);
       } else if (screen === 'draft') {
         const rects = draftCardRects(FIELD.w, FIELD.h);
         const idx = draftHit(rects, input.pointer.x, input.pointer.y);
@@ -219,9 +245,12 @@ function handleActions(actions) {
     ) {
       const num = Number(action.slice(-1));
       if (screen === 'title') {
-        // Keys 1 / 2 / 3 pick the difficulty on the title screen.
+        // Keys 1 / 2 / 3 pick the difficulty on the title screen;
+        // keys 4 / 5 pick the mode (campaign or Endless Night).
         const ids = ['gentle', 'normal', 'harsh'];
         if (num >= 1 && num <= 3) view.difficulty = ids[num - 1];
+        else if (num === 4) view.mode = 'campaign';
+        else if (num === 5) view.mode = 'endless';
       } else if (screen === 'map') {
         // Keys 1 / 2 / 3 buy a dawn upgrade; 4 / 5 / 6 choose a relic.
         if (num >= 1 && num <= 3) {

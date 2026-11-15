@@ -153,6 +153,19 @@ export function playCampaign(seed, difficulty = 'normal', opts = {}) {
   return { campaign, world, screen: 'won' };
 }
 
+// Play Endless Night until the target wave (or the run falls). Returns
+// the world, still in 'play' when it held that far. The autopilot plays
+// it exactly like a campaign night: same steering, same drafts.
+export function playEndless(seed, difficulty = 'normal', targetWave = 7) {
+  const world = createWorld(seed, 0, difficulty, null, 'endless');
+  let guard = 0;
+  while (guard++ < 60 * 60 * 20 && world.phase === 'play') {
+    playSteps(world, 60);
+    if (world.wave >= targetWave) break;
+  }
+  return world;
+}
+
 // Stage one named scene. Returns the world, the screen to paint, the
 // campaign, and the view (placement ghost) the render needs.
 export function stageShot(kind, seed, difficulty = 'normal') {
@@ -160,6 +173,17 @@ export function stageShot(kind, seed, difficulty = 'normal') {
   const view = { placeMode: false, pointer: { x: 480, y: 300 } };
   if (kind === 'title') {
     return { world, screen: 'title', view, campaign: world.campaign };
+  }
+  if (kind === 'endless') {
+    // Normal difficulty: the first seed whose endless run holds to wave 7
+    // stages the mode in full flight — high wave, lanterns out, the HUD
+    // reading ENDLESS NIGHT. Gentle is the fallback, never a loss.
+    for (let s = seed; s < seed + 24; s++) {
+      const w = playEndless(s, 'normal', 7);
+      if (w.phase === 'play' && w.wave >= 7) return { world: w, screen: 'play', view, campaign: w.campaign };
+    }
+    const w = playEndless(seed, 'gentle', 7);
+    return { world: w, screen: 'play', view, campaign: w.campaign };
   }
   if (kind === 'map') {
     // Gentle, seed search: the first seed whose night 1 is held stages

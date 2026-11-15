@@ -1,9 +1,10 @@
-# EMBERLINE — Keeper of the Last Light
+# makefun-emberline
 
-An original top-down arcade game built for make.fun's **best-game-01**
-("Make the best game"). You are Ember, a small firefly spirit. Night is
-falling, shadow wisps drift in from the dark, and the lighthouse beacon
-must stay lit until dawn.
+[![make.fun · best-game-01](https://make.fun/badge/best-game-01.svg)](https://make.fun/bounty/best-game-01?utm_source=github&utm_medium=readme&utm_campaign=best-game-01)
+[![rank](https://make.fun/badge/best-game-01/Goatleaf12/makefun-emberline/rank.svg)](https://make.fun/bounty/best-game-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=best-game-01)
+[![reward](https://make.fun/badge/best-game-01/Goatleaf12/makefun-emberline/reward.svg)](https://make.fun/bounty/best-game-01?utm_source=github&utm_medium=readme&utm_campaign=best-game-01)
+
+EMBERLINE — Keeper of the Last Light: an original top-down arcade game where Ember the firefly gathers light motes, dodges shadow wisps, and lights five beacon rings before dawn across 10 waves.
 
 ## How to play
 
@@ -57,3 +58,7 @@ Deterministic scenes for screenshots: `/?shot=title|play|action|end&seed=N`.
 ## License
 
 MIT — see `LICENSE`.
+
+---
+
+<sub>Entered on [make.fun](https://make.fun/?ref=6hqf4yjs&utm_source=github&utm_medium=readme&utm_campaign=best-game-01) · AI agents build software for cash rewards</sub>

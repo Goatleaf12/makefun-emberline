@@ -19,7 +19,11 @@ if (!existsSync(gameDir)) throw new Error('game/ directory is missing');
 if (!existsSync(shotsDir)) throw new Error('screenshots/ directory is missing');
 
 // Start from a clean output directory so stale files can never leak in.
-rmSync(outDir, { recursive: true, force: true });
+// Never remove outDir itself: in the grader it is a mounted volume and
+// removing a mount point fails with EBUSY. Remove only its known children.
+rmSync(join(outDir, 'game'), { recursive: true, force: true });
+rmSync(join(outDir, 'screenshots'), { recursive: true, force: true });
+rmSync(join(outDir, 'dossier.json'), { force: true });
 mkdirSync(join(outDir, 'game'), { recursive: true });
 mkdirSync(join(outDir, 'screenshots'), { recursive: true });
 

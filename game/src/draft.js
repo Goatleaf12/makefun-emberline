@@ -1,138 +1,169 @@
-// The between-wave upgrade draft for EMBERLINE. After the keeper clears
-// a wave, play pauses and three upgrade cards are offered; the keeper
-// picks one (click, or keys 1 / 2 / 3) and the next wave begins with that
-// upgrade in force. Every upgrade is a small, permanent change to the
-// keeper's own numbers, so choices compound across the ten waves.
-// DOM-free and clock-free: options are drawn from the world's seeded RNG,
-// so the same seed always offers the same three cards.
+// draft.js — the between-wave upgrade draft: the run's build choices.
+//
+// After each wave clears (1–9), play pauses and three cards are offered
+// from a pool of twelve. Each card may be taken a few times; the run's
+// build is the sum of its picks. Lantern cards grow the tower-defence side,
+// keeper cards grow Ember. Picks are deterministic from the run's seeded
+// generator, and cards are clickable or picked with keys 1/2/3.
 
-import { FIELD, TUNING } from './config.js';
-
-export const CARD_W = 264;
-export const CARD_H = 200;
-export const CARD_GAP = 24;
-export const CARD_Y = 196;
-
-// Eight upgrades. `max` caps how often one can be taken, so no single
-// upgrade can be stacked into a solved game; `apply` mutates only the
-// per-run fields the world owns (never the shared TUNING table).
+// One upgrade: id, name, one-line effect, how many times it may be taken,
+// and the function that applies one take to the run's upgrade state.
 export const UPGRADES = [
   {
-    id: 'heart', name: 'Extra Heart', detail: '+1 max heart, and heal 1 now',
-    color: '#ff6b81', icon: '♥', max: 2,
-    apply(world) {
-      world.maxHearts = Math.min(6, world.maxHearts + 1);
-      world.hearts = Math.min(world.maxHearts, world.hearts + 1);
-    },
+    id: 'heart',
+    name: 'Extra Heart',
+    desc: '+1 max heart, heal 1',
+    max: 2,
+    apply: (u) => { u.maxHearts += 1; u.heal = 1; },
   },
   {
-    id: 'flarewide', name: 'Wide Flare', detail: 'Flare banishes 60 px farther',
-    color: '#ffe9a8', icon: '◎', max: 3,
-    apply(world) { world.flareRadius = Math.min(430, world.flareRadius + 60); },
+    id: 'flare-wide',
+    name: 'Wide Flare',
+    desc: '+60 px flare radius',
+    max: 3,
+    apply: (u) => { u.flareRadius += 60; },
   },
   {
-    id: 'flarecheap', name: 'Kindled Flare', detail: 'Flare costs 15 less energy',
-    color: '#ffd166', icon: '✦', max: 3,
-    apply(world) { world.flareCost = Math.max(45, world.flareCost - 15); },
+    id: 'flare-kindled',
+    name: 'Kindled Flare',
+    desc: 'Flare costs 15 less energy',
+    max: 3,
+    apply: (u) => { u.flareCost -= 15; }, // world pays max(30, 90 + flareCost)
   },
   {
-    id: 'dashquick', name: 'Swift Dash', detail: 'Dash recharges 30% faster',
-    color: '#fff7e6', icon: '»', max: 3,
-    apply(world) { world.dashCooldown = Math.max(0.6, world.dashCooldown * 0.7); },
+    id: 'dash-swift',
+    name: 'Swift Dash',
+    desc: 'Dash recharges 30% faster',
+    max: 2,
+    apply: (u) => { u.dashCooldown *= 0.7; },
   },
   {
-    id: 'magnet', name: 'Strong Magnet', detail: 'Magnet pulls motes from 80 px farther',
-    color: '#fbbf24', icon: '◉', max: 3,
-    apply(world) { world.magnetRadius = Math.min(360, world.magnetRadius + 80); },
+    id: 'magnet-strong',
+    name: 'Strong Magnet',
+    desc: '+80 px mote pull',
+    max: 2,
+    apply: (u) => { u.magnet += 80; },
   },
   {
-    id: 'combolong', name: 'Long Combo', detail: 'Combo window lasts 1.2 s longer',
-    color: '#ff9d5c', icon: '∞', max: 3,
-    apply(world) { world.comboWindow = Math.min(6, world.comboWindow + 1.2); },
+    id: 'combo-long',
+    name: 'Long Combo',
+    desc: '+1.2 s combo window',
+    max: 2,
+    apply: (u) => { u.comboWindow += 1.2; },
   },
   {
-    id: 'swiftwing', name: 'Swift Wings', detail: 'Ember flies 30 px/s faster',
-    color: '#7dd3fc', icon: '➤', max: 3,
-    apply(world) { world.emberSpeed = Math.min(340, world.emberSpeed + 30); },
+    id: 'wings-swift',
+    name: 'Swift Wings',
+    desc: '+30 px/s speed',
+    max: 3,
+    apply: (u) => { u.speed += 30; },
   },
   {
-    id: 'richmotes', name: 'Rich Motes', detail: 'Every mote pays +5 score, +2 energy',
-    color: '#a5f3fc', icon: '★', max: 3,
-    apply(world) { world.moteValue += 5; world.moteEnergy += 2; },
+    id: 'motes-rich',
+    name: 'Rich Motes',
+    desc: '+5 score, +2 energy per mote',
+    max: 3,
+    apply: (u) => { u.moteScore += 5; u.moteEnergy += 2; },
+  },
+  {
+    id: 'lantern-slot',
+    name: 'Lantern Slot',
+    desc: '+1 lantern you may plant',
+    max: 2,
+    apply: (u) => { u.lanternSlots += 1; },
+  },
+  {
+    id: 'beam-long',
+    name: 'Long Beam',
+    desc: 'Lanterns reach +55 px',
+    max: 3,
+    apply: (u) => { u.lanternRange += 55; },
+  },
+  {
+    id: 'wick-rapid',
+    name: 'Rapid Wick',
+    desc: 'Lanterns fire 25% faster',
+    max: 3,
+    apply: (u) => { u.lanternCooldown *= 0.75; },
+  },
+  {
+    id: 'wick-heavy',
+    name: 'Heavy Wick',
+    desc: 'Lantern bolts hit +1 harder',
+    max: 2,
+    apply: (u) => { u.lanternDamage += 1; },
   },
 ];
 
-function taken(world, id) {
-  return world.upgradesTaken[id] || 0;
+// The run's upgrade state: one object the world owns, the draft mutates.
+export function makeUpgrades() {
+  return {
+    maxHearts: 0, // added to the base 4
+    heal: 0,
+    flareRadius: 0,
+    flareCost: 0, // subtracted from the base 90
+    dashCooldown: 1, // multiplier on the base 2.2 s
+    magnet: 0,
+    comboWindow: 0,
+    speed: 0,
+    moteScore: 0,
+    moteEnergy: 0,
+    lanternSlots: 0,
+    lanternRange: 0,
+    lanternCooldown: 1, // multiplier on the base 0.85 s
+    lanternDamage: 0,
+    taken: {}, // id -> takes so far
+  };
 }
 
-// How many times this upgrade can still be offered to this keeper.
-export function draftRemaining(world, upgrade) {
-  return Math.max(0, upgrade.max - taken(world, upgrade.id));
-}
-
-// Draw three distinct upgrades the keeper has not maxed out yet, using
-// the world's seeded RNG so the offer is reproducible from the seed.
-export function createDraft(world, rng) {
-  const pool = UPGRADES.filter((u) => draftRemaining(world, u) > 0);
-  // Fisher-Yates shuffle driven by the seeded RNG.
-  for (let i = pool.length - 1; i > 0; i -= 1) {
-    const j = rng.int(0, i);
-    const tmp = pool[i];
-    pool[i] = pool[j];
-    pool[j] = tmp;
+// Three distinct cards the run may still take, drawn from the generator.
+export function rollDraft(rng, upgrades) {
+  const pool = UPGRADES.filter((u) => (upgrades.taken[u.id] || 0) < u.max);
+  const options = [];
+  while (options.length < 3 && pool.length > 0) {
+    const i = Math.floor(rng() * pool.length);
+    options.push(pool.splice(i, 1)[0]);
   }
-  const options = pool.slice(0, 3);
-  world.draft = { options, wave: world.wave };
-  return world.draft;
+  return options;
 }
 
-// The three card rectangles, in field pixels, shared by the renderer
-// (drawing) and the input handling (click hit-testing).
-export function draftCardRects() {
-  const total = CARD_W * 3 + CARD_GAP * 2;
-  const x0 = (FIELD.width - total) / 2;
+// Apply one take of an upgrade and count it.
+export function applyUpgrade(upgrades, upgrade) {
+  upgrade.apply(upgrades);
+  upgrades.taken[upgrade.id] = (upgrades.taken[upgrade.id] || 0) + 1;
+}
+
+// Card rectangles for the draft screen: three cards in a row, centred.
+export function draftCardRects(w, h) {
+  const cw = 210;
+  const ch = 150;
+  const gap = 26;
+  const total = cw * 3 + gap * 2;
+  const x0 = (w - total) / 2;
+  const y0 = h / 2 - 40;
   return [0, 1, 2].map((i) => ({
-    x: x0 + i * (CARD_W + CARD_GAP),
-    y: CARD_Y,
-    w: CARD_W,
-    h: CARD_H,
+    x: x0 + i * (cw + gap),
+    y: y0,
+    w: cw,
+    h: ch,
   }));
 }
 
-// Which card (0, 1, 2) a field-coordinate click lands on, or -1.
-export function draftPickAt(world, x, y) {
-  if (!world.draft) return -1;
-  const rects = draftCardRects();
-  for (let i = 0; i < rects.length; i += 1) {
+// Which card (0, 1, 2) a point lands on, or -1.
+export function draftHit(rects, x, y) {
+  for (let i = 0; i < rects.length; i++) {
     const r = rects[i];
     if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return i;
   }
   return -1;
 }
 
-// Take the chosen card: apply its upgrade, clear the draft, and open the
-// next wave. Returns the upgrade taken, or null when there is no draft.
-export function applyDraftPick(world, index) {
-  if (!world.draft) return null;
-  const option = world.draft.options[index];
-  if (!option) return null;
-  option.apply(world);
-  world.upgradesTaken[option.id] = taken(world, option.id) + 1;
-  world.draft = null;
-  world.screen = 'play';
-  world.message = `${option.name}!`;
-  world.messageTimer = 2;
-  world.startWave(world.wave + 1);
-  return option;
-}
-
-// How many upgrades the keeper has taken so far, for the HUD.
-export function draftTakenCount(world) {
-  return Object.values(world.upgradesTaken).reduce((a, b) => a + b, 0);
-}
-
-// The draft's headline, so the renderer never hard-codes the wording.
-export function draftTitle(world) {
-  return `WAVE ${world.wave} CLEARED — CHOOSE AN UPGRADE`;
+// One line naming the build so far, for the draft screen and the HUD.
+export function buildLine(upgrades) {
+  const parts = [];
+  for (const u of UPGRADES) {
+    const n = upgrades.taken[u.id] || 0;
+    if (n > 0) parts.push(`${u.name} x${n}`);
+  }
+  return parts.length > 0 ? parts.join('  ·  ') : 'No upgrades yet — pick your first.';
 }

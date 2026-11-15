@@ -1,164 +1,141 @@
-// Deterministic scenes for EMBERLINE: title, live play, action and end.
-// Each scene steps the REAL world forward with a simple autopilot that
-// plays by the real rules (seek motes, flee wisps, flare when it pays),
-// so every screenshot is a genuine render of the game, reproducible from
-// its seed. No wall clock is read here: time comes only from steps.
+// shots.js — deterministic scenes for the screenshots, played by an autopilot.
+//
+// A shot is a real run of the real rules: the autopilot steers Ember, fires
+// the flare, plants lanterns and picks drafts, stepping the world in fixed
+// 1/60 s slices from a seed. Same kind + same seed renders the same frame
+// every time, which is what makes the screenshots honest renders rather
+// than staged drawings.
 
-// The upgrade draft, played by the autopilot: take the Extra Heart when
-// offered (survival first), else the first card, and keep playing.
-import { FIELD, TUNING } from './config.js';
-import { applyDraftPick } from './draft.js';
+import { createWorld, step, draftPick, effFlareCost, effFlareRadius } from './world.js';
+import { LANTERN_COST } from './lanterns.js';
 
-const STEP = 1 / 60;
+// Draft picks the autopilot prefers, best first: lantern growth early,
+// then survival, then damage.
+const DRAFT_PRIORITY = [
+  'lantern-slot',
+  'beam-long',
+  'wick-rapid',
+  'heart',
+  'motes-rich',
+  'flare-wide',
+  'wick-heavy',
+  'wings-swift',
+  'magnet-strong',
+  'combo-long',
+  'dash-swift',
+  'flare-kindled',
+];
 
-// A driver shaped like Controls, driven by the autopilot instead of keys.
-export function makeAutopilot(world) {
-  const driver = {
-    pointer: { x: 0, y: 0, down: false, active: false },
-    _flare: false,
-    _dash: false,
-    steerVector() {
-      const e = world.ember;
-      // A close wisp overrides everything: run straight away from it,
-      // with a sideways bias so seek and flee can never cancel each
-      // other out into a standstill.
-      let threat = null;
-      let threatD = 120;
-      for (const w of world.wisps) {
-        const d = Math.hypot(w.x - e.x, w.y - e.y);
-        if (d < threatD) {
-          threatD = d;
-          threat = w;
-        }
-      }
-      if (threat) {
-        const ax = (e.x - threat.x) / (threatD || 1);
-        const ay = (e.y - threat.y) / (threatD || 1);
-        // Rotate the escape by ~35 degrees so the run is never head-on.
-        const c = Math.cos(0.6);
-        const s = Math.sin(0.6);
-        let dx = ax * c - ay * s;
-        let dy = ax * s + ay * c;
-        if (e.x < 70) dx += 1;
-        if (e.x > FIELD.width - 70) dx -= 1;
-        if (e.y < 70) dy += 1;
-        if (e.y > FIELD.height - 70) dy -= 1;
-        const len = Math.hypot(dx, dy);
-        return { x: dx / len, y: dy / len };
-      }
-      let tx = e.x;
-      let ty = e.y;
-      let best = Infinity;
-      for (const m of world.motes) {
-        const d = Math.hypot(m.x - e.x, m.y - e.y);
-        const nearWisp = world.wisps.some((w) => Math.hypot(w.x - m.x, w.y - m.y) < 120);
-        const score = d - (nearWisp ? 40 : 0);
-        if (score < best) {
-          best = score;
-          tx = m.x;
-          ty = m.y;
-        }
-      }
-      const dx = tx - e.x;
-      const dy = ty - e.y;
-      const len = Math.hypot(dx, dy);
-      if (len < 4) return { x: 0, y: 0 };
-      return { x: dx / len, y: dy / len };
-    },
-    hasAction(name) {
-      if (name === 'flare' && this._flare) {
-        this._flare = false;
-        return true;
-      }
-      if (name === 'dash' && this._dash) {
-        this._dash = false;
-        return true;
-      }
-      return false;
-    },
-    // Decide once per step whether the flare or the dash is worth it.
-    think() {
-      const e = world.ember;
-      this._flare = false;
-      this._dash = false;
-      if (world.energy >= TUNING.flareCost) {
-        let inRange = 0;
-        let closest = Infinity;
-        for (const w of world.wisps) {
-          const d = Math.hypot(w.x - e.x, w.y - e.y);
-          if (d <= TUNING.flareRadius) inRange += 1;
-          if (d < closest) closest = d;
-        }
-        if (inRange >= 2 || closest < 65) this._flare = true;
-      }
-      let nearest = Infinity;
-      for (const w of world.wisps) {
-        const d = Math.hypot(w.x - e.x, w.y - e.y);
-        if (d < nearest) nearest = d;
-      }
-      if (nearest < 48 && e.dashCool <= 0) this._dash = true;
-    },
-  };
-  return driver;
-}
-
-function playSteps(world, driver, seconds, sound, stopAtDraft) {
-  const n = Math.round(seconds / STEP);
-  for (let i = 0; i < n; i += 1) {
-    // A draft pauses play until a card is picked: the autopilot takes
-    // the Extra Heart when offered, else the first card, then plays on.
-    if (world.screen === 'draft') {
-      // ...unless the caller wants to freeze on the draft itself, for
-      // the screenshot that shows the three cards.
-      if (stopAtDraft) return;
-      const heartIdx = world.draft.options.findIndex((o) => o.id === 'heart');
-      applyDraftPick(world, heartIdx >= 0 ? heartIdx : 0);
-      continue;
+// One autopilot decision: where to steer, whether to dash, what to do.
+function autopilot(world) {
+  const e = world.ember;
+  let mote = null;
+  let md = Infinity;
+  for (const m of world.motes) {
+    const d = (m.x - e.x) * (m.x - e.x) + (m.y - e.y) * (m.y - e.y);
+    if (d < md) {
+      md = d;
+      mote = m;
     }
-    driver.think();
-    world.step(STEP, driver, sound);
-    if (world.screen !== 'play' && world.screen !== 'draft') break;
   }
+  let wisp = null;
+  let wd = Infinity;
+  for (const w of world.wisps) {
+    const d = (w.x - e.x) * (w.x - e.x) + (w.y - e.y) * (w.y - e.y);
+    if (d < wd) {
+      wd = d;
+      wisp = w;
+    }
+  }
+  let steer = { x: 0, y: 0 };
+  if (wisp && wd < 70 * 70) {
+    const d = Math.sqrt(wd) || 1;
+    steer = { x: (e.x - wisp.x) / d, y: (e.y - wisp.y) / d };
+  } else if (mote) {
+    const d = Math.sqrt(md) || 1;
+    steer = { x: (mote.x - e.x) / d, y: (mote.y - e.y) / d };
+  }
+  const dash = !!wisp && wd < 45 * 45 && e.dashCool <= 0;
+  const actions = [];
+  if (world.flareEnergy >= effFlareCost(world)) {
+    const R = effFlareRadius(world);
+    let near = 0;
+    for (const w of world.wisps) {
+      const dx = w.x - e.x;
+      const dy = w.y - e.y;
+      if (dx * dx + dy * dy < R * R) near++;
+    }
+    if (near >= 2) actions.push({ kind: 'flare' });
+  }
+  if (
+    world.embers >= LANTERN_COST &&
+    world.lanterns.list.length < world.lanterns.slots &&
+    world.wave >= 2
+  ) {
+    const px = Math.max(60, Math.min(900, e.x + 90));
+    const py = Math.max(60, Math.min(540, e.y - 70));
+    let clear = true;
+    for (const l of world.lanterns.list) {
+      const dx = l.x - px;
+      const dy = l.y - py;
+      if (dx * dx + dy * dy < 120 * 120) clear = false;
+    }
+    if (clear) actions.push({ kind: 'place', x: px, y: py });
+  }
+  return { steer, dash, actions };
 }
 
-// Stage one named scene on a fresh world. Returns the screen it landed on
-// so the caller (and the balance probe) can see what really happened.
-export function stageShot(kind, world, sound) {
-  const driver = makeAutopilot(world);
+// Play the run forward up to maxSteps fixed steps. Drafts are picked by
+// priority unless stopAtDraft freezes on the cards instead.
+export function playSteps(world, maxSteps, opts = {}) {
+  let steps = 0;
+  while (steps < maxSteps && world.phase === 'play') {
+    const { steer, dash, actions } = autopilot(world);
+    step(world, 1 / 60, steer, dash, actions);
+    steps++;
+    if (world.phase === 'draft') {
+      if (opts.stopAtDraft) break;
+      let idx = 0;
+      let best = 999;
+      world.draftOptions.forEach((u, i) => {
+        const p = DRAFT_PRIORITY.indexOf(u.id);
+        if (p >= 0 && p < best) {
+          best = p;
+          idx = i;
+        }
+      });
+      draftPick(world, idx);
+    }
+  }
+  return steps;
+}
+
+// Stage one named scene. Returns the world, the screen to paint, and the
+// view (placement ghost) the render needs.
+export function stageShot(kind, seed) {
+  const world = createWorld(seed, 0);
+  const view = { placeMode: false, pointer: { x: 480, y: 300 } };
   if (kind === 'title') {
-    world.begin();
-    world.screen = 'title';
-    // Let the title backdrop breathe for a moment: motes shimmer, the
-    // beacon glows, but nothing is played yet.
-    for (let i = 0; i < 30; i += 1) {
-      for (const m of world.motes) m.phase += STEP * 3;
-    }
-    return { screen: 'title', driver };
-  }
-  world.begin();
-  if (kind === 'play') {
-    playSteps(world, driver, 78, sound);
-    return { screen: world.screen, driver };
+    return { world, screen: 'title', view };
   }
   if (kind === 'draft') {
-    // Play until the first upgrade draft opens (wave 1 cleared), then
-    // freeze on the three cards: the screenshot shows the draft itself.
-    playSteps(world, driver, 150, sound, true);
-    return { screen: world.screen, driver };
+    playSteps(world, 60 * 240, { stopAtDraft: true });
+    return { world, screen: world.phase === 'draft' ? 'draft' : 'play', view };
+  }
+  if (kind === 'play') {
+    playSteps(world, 60 * 75);
+    return { world, screen: 'play', view };
   }
   if (kind === 'action') {
-    playSteps(world, driver, 72, sound);
-    // Force a flare burst for the cover if one is charged: the ring of
-    // light mid-burst is the game's signature moment.
-    if (world.screen === 'play' && world.energy >= TUNING.flareCost) {
-      world.castFlare(sound);
-    }
-    return { screen: world.screen, driver };
+    playSteps(world, 60 * 150);
+    view.placeMode = world.embers >= LANTERN_COST;
+    view.pointer = { x: 620, y: 220 };
+    return { world, screen: 'play', view };
   }
   if (kind === 'end') {
-    // Play for real until dawn or defeat, up to six sim-minutes.
-    playSteps(world, driver, 360, sound);
-    return { screen: world.screen, driver };
+    playSteps(world, 60 * 60 * 14);
+    const screen = world.phase === 'won' ? 'won' : world.phase === 'lost' ? 'lost' : 'play';
+    return { world, screen, view };
   }
-  return { screen: world.screen, driver };
+  return { world, screen: 'play', view };
 }

@@ -1,100 +1,83 @@
-// EMBERLINE tuning: every number that shapes the night lives here.
-// One place to tune, so the feel of the game can be balanced without
-// touching the rules in world.js or the drawing in render.js.
+// config.js — every number LANTERNWARD is tuned from, in one place.
+//
+// The field is 960 by 600 logical pixels and the canvas scales it to the
+// window. Ten waves run from dusk to dawn; wave 10 ends with the Gloom
+// Herald. Five beacon rings light as the score climbs. Four hearts, one
+// flare that costs energy, and a mote economy that buys lanterns.
 
-export const FIELD = { width: 960, height: 600 };
+export const FIELD = { w: 960, h: 600 };
 
 export const PALETTE = {
-  night: '#070a1e',
-  nightEdge: '#171233',
+  night0: '#070b1d',
+  night1: '#0b1026',
+  night2: '#131a3a',
   ember: '#ffb347',
   emberHot: '#ff8c42',
-  mote: '#ffd166',
-  moteCore: '#fff3c4',
-  wisp: '#38bdf8',
-  wispEdge: '#a78bfa',
+  gold: '#ffd166',
   cream: '#fff7e6',
-  dimCream: '#c9c2a8',
-  heart: '#ff6b81',
-  ringLit: '#ffd166',
-  ringDark: '#3a3f5e',
-  flare: '#ffe9a8',
-  danger: '#ff5d73',
-  nebulaViolet: '#6d28d9',
-  nebulaTeal: '#0e7490',
-  nebulaRose: '#be185d',
-  nebulaAmber: '#b45309',
+  dim: '#9aa7d8',
+  wispDrifter: '#38bdf8',
+  wispChaser: '#a855f7',
+  wispSplitter: '#ec4899',
+  wispSwift: '#22d3ee',
+  wispBoss: '#f43f5e',
+  lantern: '#fde68a',
+  bolt: '#fef3c7',
+  danger: '#fb7185',
 };
 
-// Each wisp kind now has its own unmistakable colour AND glow: sky-blue
-// drifter, violet chaser, magenta splitter, cyan swift. At thumbnail size
-// the player can tell at a glance which threat is coming.
-export const WISP_GLOWS = {
-  drifter: 'rgba(56,189,248,0.55)',
-  chaser: 'rgba(168,85,247,0.55)',
-  splitter: 'rgba(236,72,153,0.55)',
-  swift: 'rgba(34,211,238,0.55)',
-};
-
-export const TUNING = {
+export const TUNE = {
   hearts: 4,
+  emberSpeed: 235, // px/s, before Swift Wings
+  dashSpeed: 430,
+  dashTime: 0.16, // seconds of dash
+  dashCooldown: 2.2,
   emberRadius: 13,
-  emberSpeed: 235,
-  dashSpeed: 520,
-  dashTime: 0.16,
-  dashCooldown: 1.4,
-  moteRadius: 8,
-  moteValue: 10,
-  moteEnergy: 6,
-  braveDistance: 95,
-  braveFactor: 2,
-  comboWindow: 2.6,
-  comboStep: 5,
-  comboMax: 5,
-  flareCost: 90,
+  moteScore: 10,
+  moteEnergy: 6, // flare energy per mote
+  moteEmbers: 1, // currency per mote
+  wispScore: 25, // banishing a wisp pays this, plus its kind bonus
   flareRadius: 250,
-  flareScore: { drifter: 50, chaser: 80, splitter: 100, swift: 60 },
-  hitInvulnerable: 1.6,
-  shakeOnHit: 14,
-  wispLifetime: 20,
-  moteTarget: 14,
-  stormMotes: 42,
-  pickupLifetime: 12,
-  slowDuration: 6,
-  ringScores: [3000, 8000, 15000, 25000, 40000],
-  totalWaves: 10,
+  flareCost: 90, // energy, 0..100
+  flareDamage: 3,
+  comboWindow: 2.5, // seconds to keep the chain alive
+  comboMax: 5,
+  braveRadius: 110, // a mote this close to a wisp pays double
+  ringScores: [1000, 3000, 7000, 14000, 25000],
   stormWaves: [3, 6, 9],
-  intermission: 1.8,
+  wispLifetime: 22, // seconds before a wisp fades out on its own
+  pickupLifetime: 12,
 };
 
-// What each wave throws at the keeper. Counts grow, speed grows, and new
-// wisp kinds join the night as the waves deepen.
+// What one wave throws at the keeper. Counts grow, speed grows, and new
+// kinds join as the night deepens. Wave 10 is the boss wave: the Herald
+// plus a slow trickle of drifters while it lives.
 export function waveSpec(wave) {
-  const wispCount = 3 + wave * 2;
-  const speed = 48 + wave * 6;
   const kinds = ['drifter'];
-  if (wave >= 2) kinds.push('swift');
-  if (wave >= 3) kinds.push('chaser');
-  if (wave >= 4) kinds.push('splitter');
+  if (wave >= 2) kinds.push('chaser');
+  if (wave >= 3) kinds.push('splitter');
+  if (wave >= 4) kinds.push('swift');
   return {
-    wave,
-    wispCount,
-    speed,
+    count: wave === 1 ? 5 : 5 + wave * 2,
+    speed: wave === 1 ? 44 : 48 + wave * 7,
     kinds,
-    spawnGap: Math.max(0.55, 1.5 - wave * 0.09),
-    storm: TUNING.stormWaves.includes(wave),
+    storm: TUNE.stormWaves.includes(wave),
+    boss: wave === 10,
   };
 }
 
+// A wisp kind's body: health, speed factor, score bonus, radius, colour.
 export const WISP_KINDS = {
-  drifter: { radius: 15, speed: 0.62, score: 50, hue: '#38bdf8' },
-  chaser: { radius: 15, speed: 0.95, score: 80, hue: '#a855f7' },
-  splitter: { radius: 19, speed: 0.55, score: 100, hue: '#ec4899' },
-  swift: { radius: 11, speed: 1.35, score: 60, hue: '#22d3ee' },
+  drifter: { hp: 1, speed: 0.9, bonus: 0, radius: 15, color: PALETTE.wispDrifter },
+  chaser: { hp: 2, speed: 1.15, bonus: 15, radius: 15, color: PALETTE.wispChaser },
+  splitter: { hp: 2, speed: 0.95, bonus: 25, radius: 16, color: PALETTE.wispSplitter },
+  swift: { hp: 1, speed: 1.55, bonus: 5, radius: 12, color: PALETTE.wispSwift },
+  boss: { hp: 26, speed: 0.55, bonus: 500, radius: 34, color: PALETTE.wispBoss },
 };
 
-export const PICKUP_KINDS = {
-  shield: { label: 'Aegis Shield', detail: 'Blocks one hit', color: '#93c5fd' },
-  magnet: { label: 'Mote Magnet', detail: 'Pulls motes to you', color: '#fbbf24' },
-  slow: { label: 'Slowlight', detail: 'Wisps drift slowly', color: '#a5b4fc' },
+// The three pickups. One slot only: taking a new one replaces the old.
+export const PICKUPS = {
+  shield: { name: 'Aegis Shield', hint: 'Blocks one hit' },
+  magnet: { name: 'Mote Magnet', hint: 'Pulls motes to you' },
+  slow: { name: 'Slowlight', hint: 'Wisps slow for 6s' },
 };

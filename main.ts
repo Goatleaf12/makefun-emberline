@@ -1,45 +1,50 @@
-// EMBERLINE entrypoint: hands the game in. Copies game/ and screenshots/
-// from this repository into the output directory and writes
-// /output/dossier.json with buildDossier from vendor/makefun-game.ts.
-// Standard library only; deterministic — two runs write identical bytes.
+// main.ts — the entrypoint: hands LANTERNWARD in.
+//
+// Copies game/ and screenshots/ from this repository into the output
+// directory and writes dossier.json with the kit's buildDossier, exactly
+// as the scorer will recompute it. Runs twice in the grader; both runs
+// write the same bytes. Standard library only, no network, no install.
+//
+// The output directory is never removed itself (the grader mounts it):
+// only its previous contents are cleared, one entry at a time.
 
-import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
 import { buildDossier } from './vendor/makefun-game.ts';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const repoRoot = resolve(new URL('.', import.meta.url).pathname);
-const outDir = process.env.MAKEFUN_OUTPUT_DIR
-  ? resolve(process.env.MAKEFUN_OUTPUT_DIR)
-  : '/output';
+const repoRoot = dirname(fileURLToPath(import.meta.url));
+const outDir = process.env.MAKEFUN_OUTPUT_DIR || '/output';
 
-const gameDir = join(repoRoot, 'game');
-const shotsDir = join(repoRoot, 'screenshots');
+function clearContents(dir: string): void {
+  if (!existsSync(dir)) return;
+  for (const entry of readdirSync(dir)) {
+    rmSync(join(dir, entry), { recursive: true, force: true });
+  }
+}
 
-if (!existsSync(gameDir)) throw new Error('game/ directory is missing');
-if (!existsSync(shotsDir)) throw new Error('screenshots/ directory is missing');
+function main(): void {
+  const gameDir = join(repoRoot, 'game');
+  const shotsDir = join(repoRoot, 'screenshots');
+  mkdirSync(outDir, { recursive: true });
+  clearContents(outDir);
+  cpSync(gameDir, join(outDir, 'game'), { recursive: true });
+  cpSync(shotsDir, join(outDir, 'screenshots'), { recursive: true });
+  const dossier = buildDossier(outDir, {
+    text_max_bytes: 163840,
+    screenshots: { max: 4, max_bytes: 262144 },
+    game_max_files: 993,
+    game_max_bytes: 50331648,
+  });
+  writeFileSync(join(outDir, 'dossier.json'), dossier);
+  console.log(`LANTERNWARD handed in: ${outDir} (dossier ${dossier.length} bytes)`);
+}
 
-// Start from a clean output directory so stale files can never leak in.
-// Never remove outDir itself: in the grader it is a mounted volume and
-// removing a mount point fails with EBUSY. Remove only its known children.
-rmSync(join(outDir, 'game'), { recursive: true, force: true });
-rmSync(join(outDir, 'screenshots'), { recursive: true, force: true });
-rmSync(join(outDir, 'dossier.json'), { force: true });
-mkdirSync(join(outDir, 'game'), { recursive: true });
-mkdirSync(join(outDir, 'screenshots'), { recursive: true });
-
-cpSync(gameDir, join(outDir, 'game'), { recursive: true });
-cpSync(shotsDir, join(outDir, 'screenshots'), { recursive: true });
-
-// The scorer's caps for this competition: dossier text at most 160 KiB,
-// at most 4 screenshots of at most 256 KiB each, game/ at most 993
-// files / 48 MiB, paths at most 1000 bytes.
-const dossier = buildDossier(outDir, {
-  text_max_bytes: 163840,
-  screenshots: { max: 4, max_bytes: 262144 },
-  game_max_files: 993,
-  game_max_bytes: 48 * 1024 * 1024,
-  game_path_max_bytes: 1000,
-});
-
-writeFileSync(join(outDir, 'dossier.json'), dossier);
-console.log(`wrote ${join(outDir, 'dossier.json')} (${dossier.length} bytes)`);
+main();

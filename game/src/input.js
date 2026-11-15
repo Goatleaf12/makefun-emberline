@@ -1,86 +1,120 @@
-// Keyboard + pointer state for EMBERLINE. The world reads this object
-// once per step and never touches the DOM itself, which keeps the rules
-// testable in Node and the browser code in one small place.
+// input.js — keyboard + pointer state for LANTERNWARD.
+//
+// The game reads input through a small action queue: keys that mean "do it
+// once" (confirm, flare, place, pause, restart, draft picks) are queued on
+// keydown so a quick tap can never fall between frames, while held keys and
+// the pointer give continuous steering. Shot mode never uses this module —
+// the autopilot drives the world directly.
 
-// One-shot actions (flare, dash, pause...) are queued on keydown and
-// consumed exactly once by the world, so a held key never double-fires.
-export class Controls {
-  constructor() {
-    this.keys = new Set();
-    this.queue = [];
-    this.pointer = { x: 0, y: 0, down: false, active: false };
-    this._onKeyDown = null;
-    this._onKeyUp = null;
-    this._onPointerDown = null;
-    this._onPointerMove = null;
-    this._onPointerUp = null;
+export function makeInput(canvas) {
+  const input = {
+    keys: new Set(),
+    queue: [], // one-shot actions: 'confirm' | 'flare' | 'place' | 'pause' | 'restart' | 'mute' | 'draft1' | 'draft2' | 'draft3'
+    pointer: { x: 0, y: 0, down: false, active: false },
+    placeMode: false, // B toggles lantern placement; click plants, right-click/Esc cancels
+  };
+
+  const ACTION_KEYS = {
+    Space: 'confirm',
+    Enter: 'confirm',
+    KeyF: 'flare',
+    KeyB: 'place',
+    KeyP: 'pause',
+    Escape: 'pause',
+    KeyR: 'restart',
+    KeyM: 'mute',
+    Digit1: 'draft1',
+    Digit2: 'draft2',
+    Digit3: 'draft3',
+    Numpad1: 'draft1',
+    Numpad2: 'draft2',
+    Numpad3: 'draft3',
+  };
+
+  function toLocal(e) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: ((e.clientX - rect.left) / rect.width) * canvas.width,
+      y: ((e.clientY - rect.top) / rect.height) * canvas.height,
+    };
   }
 
-  attach(element) {
-    if (typeof document === 'undefined' || !element) return;
-    this._onKeyDown = (e) => {
-      const k = e.key.toLowerCase();
-      if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) e.preventDefault();
-      if (!e.repeat) {
-        if (k === 'f' || k === ' ') this.queue.push('flare');
-        if (k === ' ') this.queue.push('confirm');
-        if (k === 'shift') this.queue.push('dash');
-        if (k === 'p' || k === 'escape') this.queue.push('pause');
-        if (k === 'm') this.queue.push('mute');
-        if (k === 'r') this.queue.push('restart');
-        if (k === '1') this.queue.push('draft1');
-        if (k === '2') this.queue.push('draft2');
-        if (k === '3') this.queue.push('draft3');
-        if (k === 'enter') this.queue.push('confirm');
-      }
-      this.keys.add(k);
-    };
-    this._onKeyUp = (e) => this.keys.delete(e.key.toLowerCase());
-    this._onPointerDown = (e) => {
-      const r = element.getBoundingClientRect();
-      this.pointer.x = e.clientX - r.left;
-      this.pointer.y = e.clientY - r.top;
-      this.pointer.down = true;
-      this.pointer.active = true;
-      this.queue.push('confirm');
-    };
-    this._onPointerMove = (e) => {
-      const r = element.getBoundingClientRect();
-      this.pointer.x = e.clientX - r.left;
-      this.pointer.y = e.clientY - r.top;
-    };
-    this._onPointerUp = () => { this.pointer.down = false; };
-    document.addEventListener('keydown', this._onKeyDown);
-    document.addEventListener('keyup', this._onKeyUp);
-    element.addEventListener('pointerdown', this._onPointerDown);
-    element.addEventListener('pointermove', this._onPointerMove);
-    element.addEventListener('pointerup', this._onPointerUp);
-    element.addEventListener('pointerleave', this._onPointerUp);
-  }
+  window.addEventListener('keydown', (e) => {
+    if (e.repeat) return;
+    input.keys.add(e.code);
+    const action = ACTION_KEYS[e.code];
+    if (action) {
+      input.queue.push(action);
+      e.preventDefault();
+    }
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+      e.preventDefault();
+    }
+  });
 
-  // Steering direction from keys, as a unit vector (or zero when idle).
-  steerVector() {
+  window.addEventListener('keyup', (e) => {
+    input.keys.delete(e.code);
+  });
+
+  window.addEventListener('blur', () => {
+    input.keys.clear();
+    input.pointer.down = false;
+  });
+
+  canvas.addEventListener('pointerdown', (e) => {
+    const p = toLocal(e);
+    input.pointer.x = p.x;
+    input.pointer.y = p.y;
+    input.pointer.down = true;
+    input.pointer.active = true;
+    if (e.button === 0) input.queue.push('click');
+    if (e.button === 2) input.queue.push('cancel');
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    const p = toLocal(e);
+    input.pointer.x = p.x;
+    input.pointer.y = p.y;
+    input.pointer.active = true;
+  });
+
+  canvas.addEventListener('pointerup', () => {
+    input.pointer.down = false;
+  });
+
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  // The steering vector this frame: arrows/WASD first, else hold-mouse.
+  input.steer = function steer(ember) {
     let x = 0;
     let y = 0;
-    if (this.keys.has('a') || this.keys.has('arrowleft')) x -= 1;
-    if (this.keys.has('d') || this.keys.has('arrowright')) x += 1;
-    if (this.keys.has('w') || this.keys.has('arrowup')) y -= 1;
-    if (this.keys.has('s') || this.keys.has('arrowdown')) y += 1;
-    if (x === 0 && y === 0) return { x: 0, y: 0 };
-    const len = Math.hypot(x, y);
-    return { x: x / len, y: y / len };
-  }
+    if (input.keys.has('ArrowLeft') || input.keys.has('KeyA')) x -= 1;
+    if (input.keys.has('ArrowRight') || input.keys.has('KeyD')) x += 1;
+    if (input.keys.has('ArrowUp') || input.keys.has('KeyW')) y -= 1;
+    if (input.keys.has('ArrowDown') || input.keys.has('KeyS')) y += 1;
+    if (x !== 0 || y !== 0) {
+      const len = Math.hypot(x, y);
+      return { x: x / len, y: y / len };
+    }
+    if (input.pointer.down && input.pointer.active) {
+      const dx = input.pointer.x - ember.x;
+      const dy = input.pointer.y - ember.y;
+      const d = Math.hypot(dx, dy);
+      if (d > 8) return { x: dx / d, y: dy / d };
+    }
+    return { x: 0, y: 0 };
+  };
 
-  hasAction(name) {
-    const i = this.queue.indexOf(name);
-    if (i === -1) return false;
-    this.queue.splice(i, 1);
-    return true;
-  }
+  input.dashHeld = function dashHeld() {
+    return input.keys.has('ShiftLeft') || input.keys.has('ShiftRight');
+  };
 
-  drainActions() {
-    const out = this.queue.slice();
-    this.queue.length = 0;
+  // Drain the one-shot queue; each action is delivered once.
+  input.drain = function drain() {
+    const out = input.queue;
+    input.queue = [];
     return out;
-  }
+  };
+
+  return input;
 }

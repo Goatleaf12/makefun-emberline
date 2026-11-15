@@ -1,479 +1,572 @@
-// The rules of EMBERLINE: entities, waves, collisions, scoring, pickups.
-// DOM-free and clock-free: every step advances a fixed dt with the seeded
-// RNG, so the same seed always plays the same game. The renderer only
-// reads this state; it never changes it.
+// world.js — the whole run: Ember, motes, wisps, lanterns, waves, the boss.
+//
+// Pure logic, no DOM, no audio, no clock: every step is a fixed 1/60 s
+// slice driven by the caller's steering and actions, and every random draw
+// comes from the run's seeded generator. That is what makes a run
+// replayable, a shot stageable, and a balance probe honest. The browser
+// (main.js) owns screens and sound; it reads `world.events` each step and
+// plays the sounds the events name.
 
-import { FIELD, TUNING, WISP_KINDS, PICKUP_KINDS, waveSpec } from './config.js';
-import { createDraft } from './draft.js';
+import { FIELD, TUNE, WISP_KINDS, PICKUPS, waveSpec } from './config.js';
+import { makeRng, pick, fieldPoint } from './random.js';
+import {
+  makeLanterns,
+  canPlace,
+  placeLantern,
+  updateLanterns,
+  LANTERN_COST,
+} from './lanterns.js';
+import { makeUpgrades, rollDraft, applyUpgrade } from './draft.js';
 
-const TAU = Math.PI * 2;
+export { LANTERN_COST };
 
-function clamp(v, lo, hi) {
-  return v < lo ? lo : v > hi ? hi : v;
-}
-
-function dist(a, b) {
-  return Math.hypot(a.x - b.x, a.y - b.y);
-}
-
-function edgeSpawn(rng) {
-  const side = rng.int(0, 3);
-  const m = 24;
-  if (side === 0) return { x: rng.range(m, FIELD.width - m), y: -m };
-  if (side === 1) return { x: rng.range(m, FIELD.width - m), y: FIELD.height + m };
-  if (side === 2) return { x: -m, y: rng.range(m, FIELD.height - m) };
-  return { x: FIELD.width + m, y: rng.range(m, FIELD.height - m) };
-}
-
-export function createWorld(rng) {
-  const state = {
-    screen: 'title',
+// A brand-new run: Ember mid-field, four hearts, wave 1 about to open.
+export function createWorld(seed, best = 0) {
+  const rng = makeRng(seed);
+  const world = {
+    seed,
+    rng,
     time: 0,
-    wave: 0,
-    score: 0,
-    best: 0,
-    hearts: TUNING.hearts,
-    maxHearts: TUNING.hearts,
-    energy: 0,
-    // Per-run copies of the numbers the upgrade draft can improve. The
-    // shared TUNING table never changes; the draft rewrites these.
-    flareRadius: TUNING.flareRadius,
-    flareCost: TUNING.flareCost,
-    dashCooldown: TUNING.dashCooldown,
-    magnetRadius: 150,
-    comboWindow: TUNING.comboWindow,
-    emberSpeed: TUNING.emberSpeed,
-    moteValue: TUNING.moteValue,
-    moteEnergy: TUNING.moteEnergy,
-    draft: null,
-    upgradesTaken: {},
-    comboChain: 0,
-    comboTimer: 0,
-    comboMult: 1,
-    bestCombo: 1,
-    ringsLit: 0,
-    pickup: null,
-    slowTimer: 0,
-    stormTimer: 0,
-    stormActive: false,
-    shake: 0,
-    wavePhase: 'idle',
-    intermission: 0,
-    spawnLeft: 0,
+    best,
+    phase: 'play', // 'play' | 'draft' | 'won' | 'lost'
+    wave: 1,
+    waveTime: 0,
+    waveActive: false,
+    spawnQueue: [],
     spawnTimer: 0,
+    stormTimer: 0,
     ember: {
-      x: FIELD.width / 2, y: FIELD.height / 2, vx: 0, vy: 0,
-      r: TUNING.emberRadius,
-      angle: -Math.PI / 2, invuln: 0, dashLeft: 0, dashCool: 0, shield: false,
+      x: FIELD.w / 2,
+      y: FIELD.h / 2,
+      vx: 0,
+      vy: 0,
+      r: TUNE.emberRadius,
+      hearts: TUNE.hearts,
+      invuln: 0,
+      dashTime: 0,
+      dashCool: 0,
+      shield: false,
     },
     motes: [],
     wisps: [],
     pickups: [],
     particles: [],
     floaters: [],
-    stats: { motes: 0, wispsBanished: 0, flares: 0, hits: 0 },
-    message: '',
-    messageTimer: 0,
+    lanterns: makeLanterns(),
+    upgrades: makeUpgrades(),
+    draftOptions: null,
+    embers: 0,
+    score: 0,
+    combo: 0,
+    comboTimer: 0,
+    comboBest: 1,
+    flareEnergy: 60,
+    ringsLit: 0,
+    slowTimer: 0,
+    magnetTimer: 0,
+    pickupTimer: 14,
+    moteTimer: 0,
+    boss: null,
+    shake: 0,
+    stats: { motes: 0, banished: 0, flares: 0, placed: 0, waves: 0 },
+    events: [],
   };
+  startWave(world, 1);
+  return world;
+}
 
-  function burst(x, y, color, n, speed) {
-    for (let i = 0; i < n; i += 1) {
-      const a = rng.angle();
-      const s = rng.range(speed * 0.3, speed);
-      state.particles.push({
-        x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
-        life: rng.range(0.35, 0.8), maxLife: 0.8, size: rng.range(2, 5), color,
-      });
+// --- effective numbers (base tuning plus the run's upgrades) ------------
+
+export function effSpeed(world) {
+  return TUNE.emberSpeed + world.upgrades.speed;
+}
+
+export function effFlareCost(world) {
+  return Math.max(30, TUNE.flareCost + world.upgrades.flareCost);
+}
+
+export function effFlareRadius(world) {
+  return TUNE.flareRadius + world.upgrades.flareRadius;
+}
+
+export function effComboWindow(world) {
+  return TUNE.comboWindow + world.upgrades.comboWindow;
+}
+
+export function effMoteScore(world) {
+  return TUNE.moteScore + world.upgrades.moteScore;
+}
+
+export function effMoteEnergy(world) {
+  return TUNE.moteEnergy + world.upgrades.moteEnergy;
+}
+
+function syncLanterns(world) {
+  const u = world.upgrades;
+  const l = world.lanterns;
+  l.slots = 2 + u.lanternSlots;
+  l.range = 175 + u.lanternRange;
+  l.cooldown = 1.0 * u.lanternCooldown;
+  l.damage = 1 + u.lanternDamage;
+}
+
+// --- spawning ------------------------------------------------------------
+
+function edgePoint(world) {
+  const rng = world.rng;
+  const side = Math.floor(rng() * 4);
+  const m = 30;
+  if (side === 0) return { x: m + rng() * (FIELD.w - m * 2), y: m };
+  if (side === 1) return { x: m + rng() * (FIELD.w - m * 2), y: FIELD.h - m };
+  if (side === 2) return { x: m, y: m + rng() * (FIELD.h - m * 2) };
+  return { x: FIELD.w - m, y: m + rng() * (FIELD.h - m * 2) };
+}
+
+function spawnMote(world, storm) {
+  const p = fieldPoint(world.rng, FIELD.w, FIELD.h, 40);
+  world.motes.push({
+    x: p.x,
+    y: p.y,
+    r: 7,
+    storm: !!storm,
+    bob: world.rng() * Math.PI * 2,
+    life: 25,
+  });
+}
+
+function spawnWisp(world, kind) {
+  const spec = WISP_KINDS[kind];
+  const p = edgePoint(world);
+  const wisp = {
+    kind,
+    x: p.x,
+    y: p.y,
+    r: spec.radius,
+    hp: spec.hp,
+    maxHp: spec.hp,
+    speed: spec.speed,
+    color: spec.color,
+    heading: world.rng() * Math.PI * 2,
+    turnTimer: 0,
+    age: 0,
+    spawnTimer: 0,
+    dead: false,
+  };
+  world.wisps.push(wisp);
+  if (kind === 'boss') {
+    world.boss = wisp;
+    world.events.push('boss');
+  }
+  return wisp;
+}
+
+function startWave(world, wave) {
+  const spec = waveSpec(wave);
+  world.wave = wave;
+  world.waveTime = 0;
+  world.waveActive = true;
+  world.spawnQueue = [];
+  for (let i = 0; i < spec.count; i++) {
+    world.spawnQueue.push(pick(world.rng, spec.kinds));
+  }
+  // Shuffle the queue so the wave never arrives in kind order.
+  for (let i = world.spawnQueue.length - 1; i > 0; i--) {
+    const j = Math.floor(world.rng() * (i + 1));
+    const t = world.spawnQueue[i];
+    world.spawnQueue[i] = world.spawnQueue[j];
+    world.spawnQueue[j] = t;
+  }
+  if (spec.boss) world.spawnQueue.unshift('boss');
+  world.spawnTimer = 0.4;
+  world.stormTimer = spec.storm ? 12 : 0;
+  if (spec.storm) world.events.push('storm');
+  world.events.push('wave');
+}
+
+// --- scoring ---------------------------------------------------------------
+
+function burst(world, x, y, color, n, speed) {
+  for (let i = 0; i < n; i++) {
+    const a = world.rng() * Math.PI * 2;
+    const v = speed * (0.4 + world.rng() * 0.8);
+    world.particles.push({
+      x,
+      y,
+      vx: Math.cos(a) * v,
+      vy: Math.sin(a) * v,
+      life: 0.5 + world.rng() * 0.4,
+      maxLife: 0.9,
+      color,
+      size: 2 + world.rng() * 3,
+    });
+  }
+}
+
+function floater(world, x, y, text, color) {
+  world.floaters.push({ x, y, text, color: color || '#fff7e6', life: 1.1 });
+}
+
+function comboMult(world) {
+  return Math.min(TUNE.comboMax, 1 + Math.floor(world.combo / 4));
+}
+
+function nearWisp(world, x, y) {
+  for (const w of world.wisps) {
+    if (w.dead) continue;
+    const dx = w.x - x;
+    const dy = w.y - y;
+    if (dx * dx + dy * dy < TUNE.braveRadius * TUNE.braveRadius) return true;
+  }
+  return false;
+}
+
+function lightRings(world) {
+  while (
+    world.ringsLit < TUNE.ringScores.length &&
+    world.score >= TUNE.ringScores[world.ringsLit]
+  ) {
+    world.ringsLit++;
+    world.events.push('ring');
+    floater(world, FIELD.w / 2, 90, `BEACON RING ${world.ringsLit} LIT`, '#ffd166');
+    burst(world, FIELD.w / 2, 120, '#ffd166', 24, 160);
+  }
+}
+
+// --- damage ----------------------------------------------------------------
+
+function banishWisp(world, wisp, source) {
+  if (wisp.dead) return;
+  wisp.dead = true;
+  world.stats.banished++;
+  const kind = WISP_KINDS[wisp.kind];
+  const gain = (TUNE.wispScore + kind.bonus) * comboMult(world);
+  world.score += gain;
+  world.embers += 1;
+  floater(world, wisp.x, wisp.y, `+${gain}`, kind.color);
+  burst(world, wisp.x, wisp.y, kind.color, wisp.kind === 'boss' ? 40 : 12, 170);
+  if (wisp.kind === 'splitter') {
+    for (let i = 0; i < 2; i++) {
+      const child = spawnWisp(world, 'drifter');
+      child.x = wisp.x + (i === 0 ? -14 : 14);
+      child.y = wisp.y;
+      child.r = 10;
+      child.speed = 0.7;
     }
   }
-
-  function floater(x, y, text, color) {
-    state.floaters.push({ x, y, text, color, life: 1.1, maxLife: 1.1 });
+  if (wisp.kind === 'boss') {
+    world.boss = null;
+    for (let i = 0; i < 10; i++) spawnMote(world, true);
+    world.events.push('bossdown');
   }
+  lightRings(world);
+}
 
-  function say(text, seconds) {
-    state.message = text;
-    state.messageTimer = seconds;
-  }
+export function hurtWisp(world, wisp, damage, source) {
+  if (wisp.dead) return;
+  wisp.hp -= damage;
+  burst(world, wisp.x, wisp.y, '#fef3c7', 3, 90);
+  if (wisp.hp <= 0) banishWisp(world, wisp, source);
+}
 
-  function spawnMote(nearStorm) {
-    const m = 30;
-    state.motes.push({
-      x: rng.range(m, FIELD.width - m),
-      y: rng.range(m, FIELD.height - m),
-      r: TUNING.moteRadius,
-      phase: rng.range(0, TAU),
-      brave: false,
-      storm: !!nearStorm,
-    });
-  }
-
-  function spawnWisp(kind, x, y, child) {
-    const base = WISP_KINDS[kind];
-    const p = (x === undefined) ? edgeSpawn(rng) : { x, y };
-    state.wisps.push({
-      kind,
-      x: p.x, y: p.y,
-      r: child ? base.radius * 0.65 : base.radius,
-      angle: rng.angle(),
-      turn: rng.range(-1.4, 1.4),
-      speed: base.speed,
-      life: TUNING.wispLifetime,
-      age: 0,
-      wobble: rng.range(0, TAU),
-      child: !!child,
-    });
-  }
-
-  function dropPickup() {
-    const kinds = Object.keys(PICKUP_KINDS);
-    const kind = kinds[rng.int(0, kinds.length - 1)];
-    const m = 50;
-    state.pickups.push({
-      kind,
-      x: rng.range(m, FIELD.width - m),
-      y: rng.range(m, FIELD.height - m),
-      life: TUNING.pickupLifetime,
-      phase: rng.range(0, TAU),
-    });
-  }
-
-  function lightRings() {
-    let lit = 0;
-    for (const t of TUNING.ringScores) if (state.score >= t) lit += 1;
-    if (lit > state.ringsLit) {
-      state.ringsLit = lit;
-      floater(state.ember.x, state.ember.y - 30, `BEACON RING ${lit} LIT!`, '#ffd166');
-      burst(state.ember.x, state.ember.y, '#ffd166', 24, 200);
+function fireFlare(world) {
+  const cost = effFlareCost(world);
+  if (world.flareEnergy < cost) return false;
+  world.flareEnergy -= cost;
+  world.stats.flares++;
+  world.events.push('flare');
+  const radius = effFlareRadius(world);
+  const e = world.ember;
+  burst(world, e.x, e.y, '#ffb347', 30, 260);
+  for (const wisp of [...world.wisps]) {
+    if (wisp.dead) continue;
+    const dx = wisp.x - e.x;
+    const dy = wisp.y - e.y;
+    if (dx * dx + dy * dy <= radius * radius) {
+      hurtWisp(world, wisp, TUNE.flareDamage, 'flare');
     }
   }
+  return true;
+}
 
-  function startWave(n) {
-    const spec = waveSpec(n);
-    state.wave = n;
-    state.wavePhase = 'spawning';
-    state.spawnLeft = spec.wispCount;
-    state.spawnTimer = 0.6;
-    state.stormActive = spec.storm;
-    if (spec.storm) {
-      state.stormTimer = 14;
-      for (let i = 0; i < TUNING.stormMotes; i += 1) spawnMote(true);
-      say('EMBER STORM — a rain of light!', 3);
+// --- pickups -----------------------------------------------------------------
+
+function applyPickup(world, kind) {
+  const e = world.ember;
+  if (kind === 'shield') e.shield = true;
+  if (kind === 'magnet') world.magnetTimer = 12;
+  if (kind === 'slow') world.slowTimer = 6;
+  world.events.push('pickup');
+}
+
+// --- the draft ---------------------------------------------------------------
+
+export function openDraft(world) {
+  world.phase = 'draft';
+  world.draftOptions = rollDraft(world.rng, world.upgrades);
+  world.events.push('draft');
+}
+
+export function draftPick(world, index) {
+  const options = world.draftOptions;
+  if (!options || index < 0 || index >= options.length) return false;
+  const upgrade = options[index];
+  applyUpgrade(world.upgrades, upgrade);
+  if (upgrade.id === 'heart') {
+    const max = TUNE.hearts + world.upgrades.maxHearts;
+    world.ember.hearts = Math.min(max, world.ember.hearts + 1);
+  }
+  syncLanterns(world);
+  world.draftOptions = null;
+  world.phase = 'play';
+  world.stats.waves++;
+  startWave(world, world.wave + 1);
+  return true;
+}
+
+// --- the step ------------------------------------------------------------------
+
+function stepEmber(world, dt, steer, dashHeld) {
+  const e = world.ember;
+  const speed = effSpeed(world);
+  if (e.invuln > 0) e.invuln -= dt;
+  if (e.dashCool > 0) e.dashCool -= dt;
+  if (dashHeld && e.dashCool <= 0 && (steer.x !== 0 || steer.y !== 0)) {
+    e.dashTime = TUNE.dashTime;
+    e.dashCool = TUNE.dashCooldown * world.upgrades.dashCooldown;
+    burst(world, e.x, e.y, '#ffb347', 8, 120);
+  }
+  const v = e.dashTime > 0 ? TUNE.dashSpeed : speed;
+  if (e.dashTime > 0) e.dashTime -= dt;
+  e.vx = steer.x * v;
+  e.vy = steer.y * v;
+  e.x = Math.max(e.r, Math.min(FIELD.w - e.r, e.x + e.vx * dt));
+  e.y = Math.max(e.r, Math.min(FIELD.h - e.r, e.y + e.vy * dt));
+  if (e.dashTime > 0) {
+    world.particles.push({
+      x: e.x,
+      y: e.y,
+      vx: -e.vx * 0.1,
+      vy: -e.vy * 0.1,
+      life: 0.3,
+      maxLife: 0.3,
+      color: '#ffb347',
+      size: 5,
+    });
+  }
+}
+
+function stepWisps(world, dt) {
+  const e = world.ember;
+  const slow = world.slowTimer > 0 ? 0.5 : 1;
+  const spec = waveSpec(world.wave);
+  for (const w of world.wisps) {
+    if (w.dead) continue;
+    w.age += dt;
+    if (w.age > TUNE.wispLifetime && w.kind !== 'boss') {
+      w.dead = true;
+      continue;
+    }
+    const speed = spec.speed * w.speed * slow;
+    if (w.kind === 'chaser' || w.kind === 'boss') {
+      const dx = e.x - w.x;
+      const dy = e.y - w.y;
+      const d = Math.hypot(dx, dy) || 1;
+      w.x += (dx / d) * speed * dt;
+      w.y += (dy / d) * speed * dt;
+    } else if (w.kind === 'swift') {
+      w.turnTimer -= dt;
+      if (w.turnTimer <= 0) {
+        w.turnTimer = 0.8 + world.rng() * 0.8;
+        w.heading += (world.rng() - 0.5) * 1.2;
+      }
+      w.x += Math.cos(w.heading) * speed * dt;
+      w.y += Math.sin(w.heading) * speed * dt + Math.sin(world.time * 3 + w.age) * 20 * dt;
     } else {
-      say(`Wave ${n} of ${TUNING.totalWaves}`, 2.2);
-    }
-    if (n === 1) {
-      for (let i = 0; i < TUNING.moteTarget; i += 1) spawnMote(false);
-    }
-    if (rng.chance(0.55)) dropPickup();
-  }
-
-  function endWave() {
-    state.energy = Math.min(100, state.energy + 15);
-    if (state.wave >= TUNING.totalWaves) {
-      state.wavePhase = 'intermission';
-      state.screen = 'won';
-      state.stats.bestCombo = state.bestCombo;
-      return;
-    }
-    // Between waves the keeper drafts one upgrade, then the next wave
-    // opens only once a card is picked. Play is fully paused meanwhile.
-    state.wavePhase = 'draft';
-    createDraft(state, rng);
-    state.screen = 'draft';
-    state.message = '';
-    state.messageTimer = 0;
-  }
-
-  function collectMote(mote, index) {
-    state.motes.splice(index, 1);
-    const nearWisp = state.wisps.some((w) => dist(w, mote) < TUNING.braveDistance);
-    const mult = state.comboMult * (nearWisp ? TUNING.braveFactor : 1);
-    const gained = state.moteValue * mult;
-    state.score += gained;
-    state.energy = Math.min(100, state.energy + state.moteEnergy);
-    state.comboChain += 1;
-    state.comboTimer = state.comboWindow;
-    state.comboMult = Math.min(TUNING.comboMax, 1 + Math.floor(state.comboChain / TUNING.comboStep));
-    if (state.comboMult > state.bestCombo) state.bestCombo = state.comboMult;
-    state.stats.motes += 1;
-    burst(mote.x, mote.y, '#ffd166', 8, 120);
-    floater(mote.x, mote.y - 12, `+${gained}${nearWisp ? ' BRAVE!' : ''}`, nearWisp ? '#ff9d5c' : '#ffd166');
-    lightRings();
-  }
-
-  function banishWisp(wisp, index, byFlare) {
-    state.wisps.splice(index, 1);
-    state.stats.wispsBanished += 1;
-    const pts = WISP_KINDS[wisp.kind].score;
-    state.score += pts;
-    burst(wisp.x, wisp.y, WISP_KINDS[wisp.kind].hue, 16, 180);
-    floater(wisp.x, wisp.y - 12, `+${pts}`, '#a5f3fc');
-    if (wisp.kind === 'splitter' && byFlare) {
-      spawnWisp('drifter', wisp.x - 14, wisp.y, true);
-      spawnWisp('drifter', wisp.x + 14, wisp.y, true);
-      floater(wisp.x, wisp.y + 16, 'It splits!', '#f472b6');
-    }
-    lightRings();
-  }
-
-  function castFlare(sound) {
-    if (state.energy < state.flareCost) return false;
-    state.energy -= state.flareCost;
-    state.stats.flares += 1;
-    const e = state.ember;
-    burst(e.x, e.y, '#ffe9a8', 40, 320);
-    state.shake = Math.max(state.shake, 8);
-    let cleared = 0;
-    for (let i = state.wisps.length - 1; i >= 0; i -= 1) {
-      if (dist(state.wisps[i], e) <= state.flareRadius) {
-        banishWisp(state.wisps[i], i, true);
-        cleared += 1;
+      w.turnTimer -= dt;
+      if (w.turnTimer <= 0) {
+        w.turnTimer = 1 + world.rng() * 1.5;
+        w.heading = world.rng() * Math.PI * 2;
       }
+      w.x += Math.cos(w.heading) * speed * dt;
+      w.y += Math.sin(w.heading) * speed * dt;
     }
-    floater(e.x, e.y - 34, cleared > 0 ? `FLARE! ${cleared} banished` : 'FLARE!', '#ffe9a8');
-    if (sound) sound.flareSwell();
-    return true;
-  }
-
-  function takeHit(wisp, index, sound) {
-    const e = state.ember;
-    if (e.invuln > 0 || e.dashLeft > 0) return;
-    if (e.shield) {
-      e.shield = false;
-      state.wisps.splice(index, 1);
-      burst(e.x, e.y, '#93c5fd', 22, 220);
-      floater(e.x, e.y - 26, 'Shield held!', '#93c5fd');
-      if (sound) sound.thud();
-      return;
-    }
-    state.hearts -= 1;
-    state.stats.hits += 1;
-    e.invuln = TUNING.hitInvulnerable;
-    state.shake = TUNING.shakeOnHit;
-    state.comboChain = 0;
-    state.comboMult = 1;
-    burst(e.x, e.y, '#ff6b81', 26, 260);
-    burst(wisp.x, wisp.y, '#7dd3fc', 12, 160);
-    if (sound) sound.thud();
-    if (state.hearts <= 0) {
-      state.screen = 'lost';
-      state.stats.bestCombo = state.bestCombo;
+    w.x = Math.max(w.r, Math.min(FIELD.w - w.r, w.x));
+    w.y = Math.max(w.r, Math.min(FIELD.h - w.r, w.y));
+    if (w.kind === 'boss') {
+      w.spawnTimer -= dt;
+      if (w.spawnTimer <= 0) {
+        w.spawnTimer = 4;
+        const child = spawnWisp(world, 'drifter');
+        child.x = w.x;
+        child.y = w.y + 30;
+      }
     }
   }
+  world.wisps = world.wisps.filter((w) => !w.dead);
+}
 
-  function stepPlay(dt, driver, sound) {
-    const e = state.ember;
-    state.time += dt;
-    if (state.messageTimer > 0) state.messageTimer -= dt;
-    if (state.slowTimer > 0) state.slowTimer -= dt;
-    if (state.stormTimer > 0) {
-      state.stormTimer -= dt;
-      if (state.stormTimer <= 0) state.stormActive = false;
+function stepMotes(world, dt) {
+  const e = world.ember;
+  const target = world.stormTimer > 0 ? 26 : 14;
+  world.moteTimer -= dt;
+  if (world.motes.length < target && world.moteTimer <= 0) {
+    world.moteTimer = world.stormTimer > 0 ? 0.15 : 0.5;
+    spawnMote(world, world.stormTimer > 0);
+  }
+  const magnetR = 90 + world.upgrades.magnet;
+  for (const mote of world.motes) {
+    mote.life -= dt;
+    mote.bob += dt * 2;
+    const dx = e.x - mote.x;
+    const dy = e.y - mote.y;
+    const d = Math.hypot(dx, dy);
+    if (world.magnetTimer > 0 && d < magnetR && d > 1) {
+      const pull = 260 * dt;
+      mote.x += (dx / d) * pull;
+      mote.y += (dy / d) * pull;
     }
-    if (state.comboTimer > 0) {
-      state.comboTimer -= dt;
-      if (state.comboTimer <= 0) {
-        state.comboChain = 0;
-        state.comboMult = 1;
+    if (d < e.r + mote.r + 4) {
+      mote.dead = true;
+      const brave = nearWisp(world, mote.x, mote.y);
+      const mult = comboMult(world);
+      const gain = effMoteScore(world) * mult * (brave ? 2 : 1);
+      world.score += gain;
+      world.embers += TUNE.moteEmbers;
+      world.flareEnergy = Math.min(100, world.flareEnergy + effMoteEnergy(world));
+      world.combo++;
+      world.comboTimer = effComboWindow(world);
+      world.comboBest = Math.max(world.comboBest, comboMult(world));
+      world.stats.motes++;
+      floater(world, mote.x, mote.y, `+${gain}`, brave ? '#ff8c42' : '#ffd166');
+      burst(world, mote.x, mote.y, '#ffd166', 5, 80);
+      world.events.push('mote');
+      lightRings(world);
+    }
+  }
+  world.motes = world.motes.filter((m) => !m.dead && m.life > 0);
+}
+
+function stepCollisions(world) {
+  const e = world.ember;
+  if (e.invuln <= 0) {
+    for (const w of world.wisps) {
+      if (w.dead) continue;
+      const dx = w.x - e.x;
+      const dy = w.y - e.y;
+      const rr = w.r + e.r;
+      if (dx * dx + dy * dy < rr * rr) {
+        if (e.shield) {
+          e.shield = false;
+          e.invuln = 1;
+          burst(world, e.x, e.y, '#7dd3fc', 14, 150);
+          floater(world, e.x, e.y - 24, 'SHIELD HELD', '#7dd3fc');
+        } else {
+          e.hearts--;
+          e.invuln = 1.2;
+          world.shake = 0.5;
+          world.combo = 0;
+          world.comboTimer = 0;
+          burst(world, e.x, e.y, '#fb7185', 18, 180);
+          world.events.push('hit');
+          if (e.hearts <= 0) {
+            world.phase = 'lost';
+            world.events.push('lose');
+            return;
+          }
+        }
+        break;
       }
     }
-    if (e.invuln > 0) e.invuln -= dt;
-    if (e.dashCool > 0) e.dashCool -= dt;
-    if (state.shake > 0) state.shake = Math.max(0, state.shake - dt * 30);
+  }
+  for (const p of world.pickups) {
+    const dx = p.x - e.x;
+    const dy = p.y - e.y;
+    if (dx * dx + dy * dy < (e.r + 12) * (e.r + 12)) {
+      p.dead = true;
+      applyPickup(world, p.kind);
+      floater(world, p.x, p.y, PICKUPS[p.kind].name.toUpperCase(), '#7dd3fc');
+    }
+  }
+  world.pickups = world.pickups.filter((p) => !p.dead && p.life > 0);
+}
 
-    // --- movement: keys win, otherwise hold-mouse steers toward pointer
-    let dir = driver.steerVector();
-    if (dir.x === 0 && dir.y === 0 && driver.pointer.down) {
-      const dx = driver.pointer.x - e.x;
-      const dy = driver.pointer.y - e.y;
-      const d = Math.hypot(dx, dy);
-      if (d > 6) dir = { x: dx / d, y: dy / d };
-    }
-    if (driver.hasAction('dash') && e.dashCool <= 0) {
-      e.dashLeft = TUNING.dashTime;
-      e.dashCool = state.dashCooldown;
-      if (sound) sound.dash();
-    }
-    const speed = e.dashLeft > 0 ? TUNING.dashSpeed : state.emberSpeed;
-    if (e.dashLeft > 0) {
-      e.dashLeft -= dt;
-      // A bright trail marks the dash, so the burst reads on screen.
-      state.particles.push({
-        x: e.x, y: e.y, vx: -e.vx * 0.1, vy: -e.vy * 0.1,
-        life: 0.3, maxLife: 0.3, size: 5, color: '#ffe9a8',
-      });
-    }
-    e.vx = dir.x * speed;
-    e.vy = dir.y * speed;
-    e.x = clamp(e.x + e.vx * dt, 16, FIELD.width - 16);
-    e.y = clamp(e.y + e.vy * dt, 16, FIELD.height - 16);
-    if (dir.x !== 0 || dir.y !== 0) e.angle = Math.atan2(dir.y, dir.x);
+// One fixed step of the run. `actions` are one-shot intents from the
+// caller: { kind: 'flare' } or { kind: 'place', x, y }.
+export function step(world, dt, steer, dashHeld, actions) {
+  if (world.phase !== 'play') return;
+  world.time += dt;
+  world.waveTime += dt;
+  if (world.comboTimer > 0) {
+    world.comboTimer -= dt;
+    if (world.comboTimer <= 0) world.combo = 0;
+  }
+  if (world.slowTimer > 0) world.slowTimer -= dt;
+  if (world.magnetTimer > 0) world.magnetTimer -= dt;
+  if (world.stormTimer > 0) world.stormTimer -= dt;
+  if (world.shake > 0) world.shake -= dt;
 
-    if (driver.hasAction('flare')) castFlare(sound);
-
-    // --- wave spawning
-    if (state.wavePhase === 'spawning') {
-      state.spawnTimer -= dt;
-      if (state.spawnLeft > 0 && state.spawnTimer <= 0) {
-        const spec = waveSpec(state.wave);
-        spawnWisp(rng.pick(spec.kinds));
-        state.spawnLeft -= 1;
-        state.spawnTimer = spec.spawnGap;
-      }
-      if (state.spawnLeft <= 0 && state.wisps.length === 0) endWave();
-    } else if (state.wavePhase === 'intermission') {
-      state.intermission -= dt;
-      if (state.intermission <= 0) startWave(state.wave + 1);
-    } else if (state.wavePhase === 'clearing' && state.wisps.length === 0) {
-      endWave();
-    }
-    if (state.wavePhase === 'spawning' && state.spawnLeft <= 0 && state.wisps.length === 0) {
-      endWave();
-    }
-
-    // --- motes: keep the field lit
-    const target = state.stormActive ? TUNING.moteTarget + 10 : TUNING.moteTarget;
-    while (state.motes.length < target) spawnMote(state.stormActive);
-    for (let i = state.motes.length - 1; i >= 0; i -= 1) {
-      const m = state.motes[i];
-      m.phase += dt * 3;
-      const d = dist(m, e);
-      if (state.pickup === 'magnet' && d < state.magnetRadius) {
-        const pull = 260 * dt;
-        m.x += ((e.x - m.x) / (d || 1)) * pull;
-        m.y += ((e.y - m.y) / (d || 1)) * pull;
-      }
-      if (d < e.r + m.r + 6) {
-        collectMote(m, i);
-        if (sound) sound.chime(state.comboMult);
-      }
-    }
-
-    // --- pickups: one slot, a new one replaces the old
-    for (let i = state.pickups.length - 1; i >= 0; i -= 1) {
-      const p = state.pickups[i];
-      p.life -= dt;
-      p.phase += dt * 2;
-      if (p.life <= 0) {
-        state.pickups.splice(i, 1);
-        continue;
-      }
-      if (dist(p, e) < e.r + 16) {
-        state.pickups.splice(i, 1);
-        state.pickup = p.kind;
-        if (p.kind === 'shield') e.shield = true;
-        if (p.kind === 'slow') state.slowTimer = TUNING.slowDuration;
-        floater(e.x, e.y - 26, PICKUP_KINDS[p.kind].label, PICKUP_KINDS[p.kind].color);
-        burst(e.x, e.y, PICKUP_KINDS[p.kind].color, 14, 160);
-        if (sound) sound.pickup();
-      }
-    }
-
-    // --- wisps: drift, hunt, split, fade
-    const slowFactor = state.slowTimer > 0 ? 0.45 : 1;
-    for (let i = state.wisps.length - 1; i >= 0; i -= 1) {
-      const w = state.wisps[i];
-      w.life -= dt;
-      w.age += dt;
-      w.wobble += dt * 2;
-      const spec = waveSpec(state.wave);
-      const spd = spec.speed * w.speed * slowFactor * (w.child ? 0.6 : 1);
-      if (w.kind === 'chaser') {
-        const want = Math.atan2(e.y - w.y, e.x - w.x);
-        let diff = want - w.angle;
-        while (diff > Math.PI) diff -= TAU;
-        while (diff < -Math.PI) diff += TAU;
-        w.angle += clamp(diff, -1.5 * dt, 1.5 * dt);
-      } else if (w.kind === 'swift') {
-        w.angle += Math.sin(w.wobble) * 0.9 * dt;
+  for (const action of actions || []) {
+    if (action.kind === 'flare') fireFlare(world);
+    if (action.kind === 'place') {
+      if (canPlace(world.lanterns, world.embers)) {
+        world.embers -= LANTERN_COST;
+        placeLantern(world.lanterns, action.x, action.y);
+        world.stats.placed++;
+        world.events.push('place');
+        burst(world, action.x, action.y, '#fde68a', 12, 120);
       } else {
-        w.angle += w.turn * dt;
+        world.events.push('placefail');
       }
-      w.x += Math.cos(w.angle) * spd * dt;
-      w.y += Math.sin(w.angle) * spd * dt;
-      if (w.x < 10 || w.x > FIELD.width - 10) w.angle = Math.PI - w.angle;
-      if (w.y < 10 || w.y > FIELD.height - 10) w.angle = -w.angle;
-      w.x = clamp(w.x, 8, FIELD.width - 8);
-      w.y = clamp(w.y, 8, FIELD.height - 8);
-      if (w.life <= 0) {
-        state.wisps.splice(i, 1);
-        continue;
-      }
-      if (dist(w, e) < w.r + e.r - 2) {
-        takeHit(w, i, sound);
-        if (state.screen !== 'play') return;
-      }
-    }
-
-    // --- particles + floating text decay
-    for (let i = state.particles.length - 1; i >= 0; i -= 1) {
-      const p = state.particles[i];
-      p.life -= dt;
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
-      p.vx *= 0.96;
-      p.vy *= 0.96;
-      if (p.life <= 0) state.particles.splice(i, 1);
-    }
-    for (let i = state.floaters.length - 1; i >= 0; i -= 1) {
-      const f = state.floaters[i];
-      f.life -= dt;
-      f.y -= 26 * dt;
-      if (f.life <= 0) state.floaters.splice(i, 1);
     }
   }
 
-  function begin() {
-    state.screen = 'play';
-    state.time = 0;
-    state.wave = 0;
-    state.score = 0;
-    state.hearts = TUNING.hearts;
-    state.maxHearts = TUNING.hearts;
-    state.energy = 0;
-    state.flareRadius = TUNING.flareRadius;
-    state.flareCost = TUNING.flareCost;
-    state.dashCooldown = TUNING.dashCooldown;
-    state.magnetRadius = 150;
-    state.comboWindow = TUNING.comboWindow;
-    state.emberSpeed = TUNING.emberSpeed;
-    state.moteValue = TUNING.moteValue;
-    state.moteEnergy = TUNING.moteEnergy;
-    state.draft = null;
-    state.upgradesTaken = {};
-    state.comboChain = 0;
-    state.comboTimer = 0;
-    state.comboMult = 1;
-    state.bestCombo = 1;
-    state.ringsLit = 0;
-    state.pickup = null;
-    state.slowTimer = 0;
-    state.stormTimer = 0;
-    state.stormActive = false;
-    state.motes = [];
-    state.wisps = [];
-    state.pickups = [];
-    state.particles = [];
-    state.floaters = [];
-    state.stats = { motes: 0, wispsBanished: 0, flares: 0, hits: 0 };
-    state.ember.x = FIELD.width / 2;
-    state.ember.y = FIELD.height / 2;
-    state.ember.invuln = 0;
-    state.ember.shield = false;
-    startWave(1);
+  stepEmber(world, dt, steer, dashHeld);
+
+  if (world.spawnQueue.length > 0) {
+    world.spawnTimer -= dt;
+    if (world.spawnTimer <= 0) {
+      world.spawnTimer = 0.7;
+      spawnWisp(world, world.spawnQueue.shift());
+    }
   }
 
-  function step(dt, driver, sound) {
-    if (state.screen === 'play') stepPlay(dt, driver, sound);
-  }
+  stepMotes(world, dt);
+  stepWisps(world, dt);
+  updateLanterns(world.lanterns, world.wisps, dt, (w, dmg, src) => hurtWisp(world, w, dmg, src));
+  stepCollisions(world);
+  if (world.phase !== 'play') return;
 
-  // The world is its state, with its verbs attached: callers read fields
-  // (world.score, world.ember) and call methods (world.step) on one object.
-  state.begin = begin;
-  state.step = step;
-  state.castFlare = castFlare;
-  state.startWave = startWave;
-  state.endWave = endWave;
-  return state;
+  world.pickupTimer -= dt;
+  if (world.pickupTimer <= 0) {
+    world.pickupTimer = 18;
+    const kinds = Object.keys(PICKUPS);
+    const p = fieldPoint(world.rng, FIELD.w, FIELD.h, 60);
+    world.pickups.push({ kind: pick(world.rng, kinds), x: p.x, y: p.y, life: TUNE.pickupLifetime });
+  }
+  for (const p of world.pickups) p.life -= dt;
+
+  for (const pt of world.particles) {
+    pt.life -= dt;
+    pt.x += pt.vx * dt;
+    pt.y += pt.vy * dt;
+    pt.vx *= 0.96;
+    pt.vy *= 0.96;
+  }
+  world.particles = world.particles.filter((p) => p.life > 0);
+  for (const f of world.floaters) {
+    f.life -= dt;
+    f.y -= 24 * dt;
+  }
+  world.floaters = world.floaters.filter((f) => f.life > 0);
+
+  // Wave cleared: nothing left to spawn, nothing left alive.
+  if (world.waveActive && world.spawnQueue.length === 0 && world.wisps.length === 0) {
+    world.waveActive = false;
+    if (world.wave >= 10) {
+      world.phase = 'won';
+      world.events.push('win');
+    } else {
+      openDraft(world);
+    }
+  }
 }

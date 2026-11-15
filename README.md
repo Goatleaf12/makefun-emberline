@@ -4,13 +4,14 @@
 [![rank](https://make.fun/badge/best-game-01/Goatleaf12/makefun-emberline/rank.svg)](https://make.fun/bounty/best-game-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=best-game-01)
 [![reward](https://make.fun/badge/best-game-01/Goatleaf12/makefun-emberline/reward.svg)](https://make.fun/bounty/best-game-01?utm_source=github&utm_medium=readme&utm_campaign=best-game-01)
 
-EMBERLINE — Keeper of the Last Light: an original top-down arcade game where Ember the firefly gathers light motes, dodges shadow wisps, and lights five beacon rings before dawn across 10 waves.
+LANTERNWARD — Hold the Last Light: an original top-down arcade tower-defence game where Ember the firefly gathers light motes, plants fighting lanterns, dodges shadow wisps, and lights five beacon rings before dawn across 10 waves — ending in a boss wave, the Gloom Herald.
 
 ## How to play
 
 - **Steer** with WASD / arrow keys, or hold the mouse and Ember follows
   your pointer.
-- **Collect light motes** for score and beacon energy. Chain them quickly
+- **Collect light motes** for score and beacon energy. Every mote is also
+  an **ember** — the currency you spend on lanterns. Chain motes quickly
   to build a combo up to **x5**. Motes gathered close to a wisp pay
   **double** (brave bonus).
 - **Dodge shadow wisps** — drifter, swift, chaser and splitter kinds.
@@ -18,6 +19,13 @@ EMBERLINE — Keeper of the Last Light: an original top-down arcade game where E
 - **Flare (F or Space)** when the flare bar is full: a ring of light
   banishes every wisp within reach. Splitters burst into two small
   drifters when flared — mind the aftermath.
+- **Plant lanterns (B, then click)** for 45 embers each: they stand on the
+  field and fire light bolts at the nearest wisp in range. You start with
+  2 lantern slots; the draft can add more, and make them shoot farther,
+  faster, or harder. Placement is the run's central decision.
+- **Boss wave 10:** the Gloom Herald — a slow, tough wisp (26 HP) that
+  spawns drifters every few seconds and drops a shower of motes when it
+  falls.
 - **Pickups** appear on the field — Aegis Shield (blocks one hit), Mote
   Magnet (pulls motes to you), Slowlight (wisps drift slowly for 6 s).
   You hold one at a time; taking a new one replaces the old.
@@ -28,9 +36,10 @@ EMBERLINE — Keeper of the Last Light: an original top-down arcade game where E
   glow on every lit beacon ring. Each wisp kind glows in its own colour
   (sky-blue drifter, violet chaser, magenta splitter, cyan swift) and
   shows a shrinking warning ring when it spawns.
-- **Draft (new in v2):** clear a wave and choose 1 of 3 upgrade cards —
+- **Draft (new in v2, grown in v3):** clear a wave and choose 1 of 3 upgrade cards —
   Extra Heart, Wide Flare, Kindled Flare, Swift Dash, Strong Magnet, Long
-  Combo, Swift Wings or Rich Motes. Click a card or press **1 / 2 / 3**.
+  Combo, Swift Wings, Rich Motes — plus four lantern cards: Lantern Slot,
+  Long Beam, Rapid Wick and Heavy Wick. Click a card or press **1 / 2 / 3**.
   Upgrades stack across the 10 waves, so every run builds differently.
 - **P / Esc** pauses, **M** mutes, **R** restarts, **Space** starts.
 
@@ -58,7 +67,8 @@ Deterministic scenes for screenshots: `/?shot=title|play|action|draft|end&seed=N
 - `game/src/audio.js` — synthesised SFX and ambient music
 - `game/src/input.js` — keyboard + pointer state
 - `game/src/world.js` — entities, waves, collisions, scoring
-- `game/src/draft.js` — the between-wave upgrade draft (8 upgrades, 3 cards)
+- `game/src/lanterns.js` — placeable fighting lanterns (slots, bolts, range)
+- `game/src/draft.js` — the between-wave upgrade draft (12 upgrades, 3 cards)
 - `game/src/render.js` — canvas drawing: field, entities, HUD, screens
 - `game/src/shots.js` — deterministic scenes + autopilot
 - `game/src/main.js` — boot, fixed-step loop, screen state machine

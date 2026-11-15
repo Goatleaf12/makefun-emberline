@@ -6,7 +6,19 @@
 // between-wave draft (range, fire rate, damage, extra slots). Placement is
 // the run's central decision: where to stand the light, and when to spend.
 
-export const LANTERN_COST = 45; // embers per lantern
+export const LANTERN_COST = 45; // embers per lantern, either kind
+
+// A frost lantern's chill: how far its aura reaches and how much it slows
+// wisps inside it, from the Frost Lantern card's takes (0 = locked).
+// The first take unlocks; further takes widen and deepen the chill.
+export function frostRadius(upgrades) {
+  const takes = upgrades.frost || 0;
+  return takes > 0 ? 120 + 30 * (takes - 1) : 0;
+}
+export function frostSlow(upgrades) {
+  const takes = upgrades.frost || 0;
+  return takes > 0 ? Math.min(0.6, 0.35 + 0.1 * (takes - 1)) : 0;
+}
 
 // A fresh lantern set: two slots to start, no lanterns, no bolts in flight.
 export function makeLanterns() {
@@ -23,20 +35,23 @@ export function canPlace(lanterns, embers) {
   return lanterns.list.length < lanterns.slots && embers >= LANTERN_COST;
 }
 
-// Plant a lantern at (x, y). Returns the lantern, or null when placement
-// is not allowed (no free slot, or too few embers). The caller deducts the
-// cost; this function only builds the lantern itself.
-export function placeLantern(lanterns, x, y) {
+// Plant a lantern at (x, y). `kind` is 'ember' (fires light bolts) or
+// 'frost' (chills wisps nearby, never fires). Returns the lantern, or null
+// when placement is not allowed (no free slot, or too few embers). The
+// caller deducts the cost and checks the frost unlock; this function only
+// builds the lantern itself.
+export function placeLantern(lanterns, x, y, kind = 'ember') {
   if (lanterns.list.length >= lanterns.slots) return null;
-  const lantern = { x, y, cool: 0.25, angle: -Math.PI / 2, flash: 0 };
+  const lantern = { x, y, cool: 0.25, angle: -Math.PI / 2, flash: 0, kind };
   lanterns.list.push(lantern);
   return lantern;
 }
 
-// One lantern's nearest wisp inside its radius, or null.
-function nearestWisp(lanterns, lantern, wisps) {
+// One lantern's nearest wisp inside a given radius, or null.
+function nearestWisp(lanterns, lantern, wisps, range) {
+  const reach = range === undefined ? lanterns.range : range;
   let best = null;
-  let bestD = lanterns.range * lanterns.range;
+  let bestD = reach * reach;
   for (const w of wisps) {
     if (w.dead) continue;
     const dx = w.x - lantern.x;
@@ -52,15 +67,37 @@ function nearestWisp(lanterns, lantern, wisps) {
 
 // Step every lantern and every bolt in flight. `hurt(wisp, damage)` is the
 // world's damage hook: it applies the hit, scores it and spawns particles.
-export function updateLanterns(lanterns, wisps, dt, hurt) {
+// `light` is the Dawn Star's state ({x, y, radius}) or null: a lantern
+// standing in its light reaches 40% farther and fires 25% faster, so the
+// best ground moves with the star. `lantern.lit` records the buff for the
+// renderer; it is pure sim state, set only here.
+export function updateLanterns(lanterns, wisps, dt, hurt, light) {
   for (const lantern of lanterns.list) {
     lantern.cool -= dt;
     if (lantern.flash > 0) lantern.flash -= dt;
-    const target = nearestWisp(lanterns, lantern, wisps);
+    // A frost lantern never fires: its chill is applied to wisps by the
+    // world (see stepWisps). It still counts as lit when it stands in the
+    // Dawn Star's light, so its aura visibly widens there.
+    if (lantern.kind === 'frost') {
+      lantern.lit =
+        !!light &&
+        (lantern.x - light.x) * (lantern.x - light.x) +
+          (lantern.y - light.y) * (lantern.y - light.y) <=
+          light.radius * light.radius;
+      continue;
+    }
+    const lit =
+      !!light &&
+      (lantern.x - light.x) * (lantern.x - light.x) +
+        (lantern.y - light.y) * (lantern.y - light.y) <=
+        light.radius * light.radius;
+    lantern.lit = lit;
+    const range = lanterns.range * (lit ? 1.4 : 1);
+    const target = nearestWisp(lanterns, lantern, wisps, range);
     if (target) {
       lantern.angle = Math.atan2(target.y - lantern.y, target.x - lantern.x);
       if (lantern.cool <= 0) {
-        lantern.cool = lanterns.cooldown;
+        lantern.cool = lanterns.cooldown * (lit ? 0.8 : 1);
         lantern.flash = 0.12;
         lanterns.bolts.push({
           x: lantern.x,

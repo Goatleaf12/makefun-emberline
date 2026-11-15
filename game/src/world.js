@@ -7,27 +7,34 @@
 // (main.js) owns screens and sound; it reads `world.events` each step and
 // plays the sounds the events name.
 
-import { FIELD, TUNE, WISP_KINDS, PICKUPS, waveSpec } from './config.js';
+import { FIELD, TUNE, WISP_KINDS, PICKUPS, waveSpec, DIFFICULTIES } from './config.js';
 import { makeRng, pick, fieldPoint } from './random.js';
 import {
   makeLanterns,
   canPlace,
   placeLantern,
   updateLanterns,
+  frostRadius,
+  frostSlow,
   LANTERN_COST,
 } from './lanterns.js';
 import { makeUpgrades, rollDraft, applyUpgrade } from './draft.js';
+import { lightState, inLight } from './daylight.js';
 
 export { LANTERN_COST };
 
-// A brand-new run: Ember mid-field, four hearts, wave 1 about to open.
-export function createWorld(seed, best = 0) {
+// A brand-new run: Ember mid-field, wave 1 about to open. `difficulty`
+// is 'gentle' | 'normal' | 'harsh' and only changes hearts, wisp speed
+// and wisp count; the rules never change.
+export function createWorld(seed, best = 0, difficulty = 'normal') {
   const rng = makeRng(seed);
+  const diff = DIFFICULTIES[difficulty] || DIFFICULTIES.normal;
   const world = {
     seed,
     rng,
     time: 0,
     best,
+    difficulty,
     phase: 'play', // 'play' | 'draft' | 'won' | 'lost'
     wave: 1,
     waveTime: 0,
@@ -41,7 +48,7 @@ export function createWorld(seed, best = 0) {
       vx: 0,
       vy: 0,
       r: TUNE.emberRadius,
-      hearts: TUNE.hearts,
+      hearts: diff.hearts,
       invuln: 0,
       dashTime: 0,
       dashCool: 0,
@@ -161,7 +168,7 @@ function spawnWisp(world, kind) {
 }
 
 function startWave(world, wave) {
-  const spec = waveSpec(wave);
+  const spec = waveSpec(wave, world.difficulty);
   world.wave = wave;
   world.waveTime = 0;
   world.waveActive = true;
@@ -312,7 +319,7 @@ export function draftPick(world, index) {
   const upgrade = options[index];
   applyUpgrade(world.upgrades, upgrade);
   if (upgrade.id === 'heart') {
-    const max = TUNE.hearts + world.upgrades.maxHearts;
+    const max = (DIFFICULTIES[world.difficulty] || DIFFICULTIES.normal).hearts + world.upgrades.maxHearts;
     world.ember.hearts = Math.min(max, world.ember.hearts + 1);
   }
   syncLanterns(world);
@@ -358,7 +365,19 @@ function stepEmber(world, dt, steer, dashHeld) {
 function stepWisps(world, dt) {
   const e = world.ember;
   const slow = world.slowTimer > 0 ? 0.5 : 1;
-  const spec = waveSpec(world.wave);
+  const spec = waveSpec(world.wave, world.difficulty);
+  // Frost lanterns: a wisp standing in any frost aura moves slower. The
+  // strongest aura covering it wins; a lit frost lantern's aura reaches
+  // 40% farther, like an ember lantern's range in the Dawn Star's light.
+  const frostR = frostRadius(world.upgrades);
+  const frostS = frostSlow(world.upgrades);
+  const frostAuras = [];
+  if (frostS > 0) {
+    for (const l of world.lanterns.list) {
+      if (l.kind !== 'frost') continue;
+      frostAuras.push({ x: l.x, y: l.y, r: frostR * (l.lit ? 1.4 : 1) });
+    }
+  }
   for (const w of world.wisps) {
     if (w.dead) continue;
     w.age += dt;
@@ -366,7 +385,14 @@ function stepWisps(world, dt) {
       w.dead = true;
       continue;
     }
-    const speed = spec.speed * w.speed * slow;
+    let chill = 0;
+    for (const a of frostAuras) {
+      const dx = w.x - a.x;
+      const dy = w.y - a.y;
+      if (dx * dx + dy * dy <= a.r * a.r) chill = frostS;
+    }
+    w.chilled = chill > 0;
+    const speed = spec.speed * w.speed * slow * (1 - chill);
     if (w.kind === 'chaser' || w.kind === 'boss') {
       const dx = e.x - w.x;
       const dy = e.y - w.y;
@@ -428,8 +454,11 @@ function stepMotes(world, dt) {
     if (d < e.r + mote.r + 4) {
       mote.dead = true;
       const brave = nearWisp(world, mote.x, mote.y);
+      // A mote gathered in the Dawn Star's light pays +5: the light is
+      // worth chasing, not just standing in.
+      const sunlit = inLight(mote.x, mote.y, lightState(world));
       const mult = comboMult(world);
-      const gain = effMoteScore(world) * mult * (brave ? 2 : 1);
+      const gain = effMoteScore(world) * mult * (brave ? 2 : 1) + (sunlit ? 5 : 0);
       world.score += gain;
       world.embers += TUNE.moteEmbers;
       world.flareEnergy = Math.min(100, world.flareEnergy + effMoteEnergy(world));
@@ -437,7 +466,7 @@ function stepMotes(world, dt) {
       world.comboTimer = effComboWindow(world);
       world.comboBest = Math.max(world.comboBest, comboMult(world));
       world.stats.motes++;
-      floater(world, mote.x, mote.y, `+${gain}`, brave ? '#ff8c42' : '#ffd166');
+      floater(world, mote.x, mote.y, `+${gain}`, sunlit ? '#fde047' : brave ? '#ff8c42' : '#ffd166');
       burst(world, mote.x, mote.y, '#ffd166', 5, 80);
       world.events.push('mote');
       lightRings(world);
@@ -508,12 +537,16 @@ export function step(world, dt, steer, dashHeld, actions) {
   for (const action of actions || []) {
     if (action.kind === 'flare') fireFlare(world);
     if (action.kind === 'place') {
-      if (canPlace(world.lanterns, world.embers)) {
+      const kind = action.lanternKind === 'frost' ? 'frost' : 'ember';
+      // Frost lanterns need the Frost Lantern draft card first.
+      if (kind === 'frost' && (world.upgrades.frost || 0) < 1) {
+        world.events.push('placefail');
+      } else if (canPlace(world.lanterns, world.embers)) {
         world.embers -= LANTERN_COST;
-        placeLantern(world.lanterns, action.x, action.y);
+        placeLantern(world.lanterns, action.x, action.y, kind);
         world.stats.placed++;
         world.events.push('place');
-        burst(world, action.x, action.y, '#fde68a', 12, 120);
+        burst(world, action.x, action.y, kind === 'frost' ? '#7dd3fc' : '#fde68a', 12, 120);
       } else {
         world.events.push('placefail');
       }
@@ -532,7 +565,7 @@ export function step(world, dt, steer, dashHeld, actions) {
 
   stepMotes(world, dt);
   stepWisps(world, dt);
-  updateLanterns(world.lanterns, world.wisps, dt, (w, dmg, src) => hurtWisp(world, w, dmg, src));
+  updateLanterns(world.lanterns, world.wisps, dt, (w, dmg, src) => hurtWisp(world, w, dmg, src), lightState(world));
   stepCollisions(world);
   if (world.phase !== 'play') return;
 

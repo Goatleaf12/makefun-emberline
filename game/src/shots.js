@@ -14,6 +14,7 @@ import { LANTERN_COST } from './lanterns.js';
 const DRAFT_PRIORITY = [
   'lantern-slot',
   'beam-long',
+  'frost-lantern',
   'wick-rapid',
   'heart',
   'motes-rich',
@@ -80,7 +81,16 @@ function autopilot(world) {
       const dy = l.y - py;
       if (dx * dx + dy * dy < 120 * 120) clear = false;
     }
-    if (clear) actions.push({ kind: 'place', x: px, y: py });
+    if (clear) {
+      // Once the frost card is taken, the second lantern is a frost one:
+      // the chill covers the lane the ember lanterns do not.
+      const hasFrost = world.lanterns.list.some((l) => l.kind === 'frost');
+      const lanternKind =
+        (world.upgrades.frost || 0) >= 1 && !hasFrost && world.lanterns.list.length >= 1
+          ? 'frost'
+          : 'ember';
+      actions.push({ kind: 'place', x: px, y: py, lanternKind });
+    }
   }
   return { steer, dash, actions };
 }
@@ -112,8 +122,8 @@ export function playSteps(world, maxSteps, opts = {}) {
 
 // Stage one named scene. Returns the world, the screen to paint, and the
 // view (placement ghost) the render needs.
-export function stageShot(kind, seed) {
-  const world = createWorld(seed, 0);
+export function stageShot(kind, seed, difficulty = 'normal') {
+  const world = createWorld(seed, 0, difficulty);
   const view = { placeMode: false, pointer: { x: 480, y: 300 } };
   if (kind === 'title') {
     return { world, screen: 'title', view };
@@ -136,6 +146,18 @@ export function stageShot(kind, seed) {
     playSteps(world, 60 * 60 * 14);
     const screen = world.phase === 'won' ? 'won' : world.phase === 'lost' ? 'lost' : 'play';
     return { world, screen, view };
+  }
+  if (kind === 'boss') {
+    // Play until the Gloom Herald appears on wave 10, then hold about a
+    // second into its intro splash. One-second chunks keep the staging
+    // deterministic: the same seed always freezes the same frame.
+    let guard = 0;
+    while (guard++ < 60 * 60 * 14) {
+      if (world.phase !== 'play') break;
+      playSteps(world, 60);
+      if (world.boss && world.boss.age >= 1.0) break;
+    }
+    return { world, screen: 'play', view };
   }
   return { world, screen: 'play', view };
 }

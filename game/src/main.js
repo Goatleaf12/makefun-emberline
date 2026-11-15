@@ -8,7 +8,7 @@
 
 import { FIELD } from './config.js';
 import { createWorld, step, draftPick } from './world.js';
-import { draw } from './render.js';
+import { draw, difficultyRects } from './render.js';
 import { makeInput } from './input.js';
 import { makeAudio } from './audio.js';
 import { draftHit, draftCardRects } from './draft.js';
@@ -43,19 +43,22 @@ const input = makeInput(canvas);
 
 let world = null;
 let screen = 'title'; // 'title' | 'play' | 'pause' | 'draft' | 'won' | 'lost'
-let view = { placeMode: false, pointer: { x: 480, y: 300 } };
+let view = { placeMode: false, placeKind: 'ember', difficulty: 'normal', pointer: { x: 480, y: 300 } };
 let pending = []; // one-shot world actions for the next fixed step
 
-function newRun(seed) {
-  world = createWorld(seed, loadBest());
+function newRun(seed, difficulty = 'normal') {
+  world = createWorld(seed, loadBest(), difficulty);
   screen = 'title';
-  view = { placeMode: false, pointer: { x: 480, y: 300 } };
+  view = { placeMode: false, placeKind: 'ember', difficulty, pointer: { x: 480, y: 300 } };
   pending = [];
   setStatus('LANTERNWARD — hold the last light until dawn.');
 }
 
 function startPlaying() {
+  // The run starts with the difficulty chosen on the title screen; the
+  // title world's seed was only its animated backdrop.
   audio.unlock();
+  newRun((Math.random() * 1e9) | 0, view.difficulty || 'normal');
   screen = 'play';
   setStatus('Wave 1 — gather motes, plant lanterns with B, hold the light.');
 }
@@ -96,7 +99,7 @@ function handleActions(actions) {
   for (const action of actions) {
     if (action === 'confirm') {
       if (screen === 'title') startPlaying();
-      else if (screen === 'won' || screen === 'lost') newRun((Math.random() * 1e9) | 0);
+      else if (screen === 'won' || screen === 'lost') newRun((Math.random() * 1e9) | 0, world.difficulty);
     } else if (action === 'pause') {
       if (screen === 'play') {
         screen = 'pause';
@@ -105,16 +108,17 @@ function handleActions(actions) {
         screen = 'play';
       }
     } else if (action === 'restart') {
-      newRun((Math.random() * 1e9) | 0);
+      newRun((Math.random() * 1e9) | 0, world ? world.difficulty : 'normal');
     } else if (action === 'mute') {
       const muted = audio.toggleMute();
       setStatus(muted ? 'Sound off.' : 'Sound on.');
     } else if (action === 'place') {
       if (screen === 'play') {
         view.placeMode = !view.placeMode;
+        if (view.placeMode) view.placeKind = 'ember';
         setStatus(
           view.placeMode
-            ? 'Placing a lantern — click the field to plant (45 embers). B cancels.'
+            ? 'Placing a lantern — click the field to plant (45 embers). 1 Ember · 2 Frost · B cancels.'
             : 'Placement off.',
         );
       }
@@ -124,9 +128,19 @@ function handleActions(actions) {
       if (screen === 'play') pending.push({ kind: 'flare' });
     } else if (action === 'click') {
       if (screen === 'title') {
-        startPlaying();
+        // A click on a difficulty button selects it; anywhere else starts.
+        const rects = difficultyRects(FIELD.w, FIELD.h);
+        const hit = rects.find(
+          (r) =>
+            input.pointer.x >= r.x &&
+            input.pointer.x <= r.x + r.w &&
+            input.pointer.y >= r.y &&
+            input.pointer.y <= r.y + r.h,
+        );
+        if (hit) view.difficulty = hit.id;
+        else startPlaying();
       } else if (screen === 'won' || screen === 'lost') {
-        newRun((Math.random() * 1e9) | 0);
+        newRun((Math.random() * 1e9) | 0, world.difficulty);
       } else if (screen === 'draft') {
         const rects = draftCardRects(FIELD.w, FIELD.h);
         const idx = draftHit(rects, input.pointer.x, input.pointer.y);
@@ -135,11 +149,28 @@ function handleActions(actions) {
           setStatus(`Wave ${world.wave} — the night deepens.`);
         }
       } else if (screen === 'play' && view.placeMode) {
-        pending.push({ kind: 'place', x: input.pointer.x, y: input.pointer.y });
+        pending.push({ kind: 'place', x: input.pointer.x, y: input.pointer.y, lanternKind: view.placeKind });
         view.placeMode = false;
       }
     } else if (action === 'draft1' || action === 'draft2' || action === 'draft3') {
-      if (screen === 'draft') {
+      if (screen === 'title') {
+        // Keys 1 / 2 / 3 pick the difficulty on the title screen.
+        const ids = ['gentle', 'normal', 'harsh'];
+        view.difficulty = ids[Number(action.slice(-1)) - 1];
+      } else if (screen === 'play' && view.placeMode) {
+        // Keys 1 / 2 switch the lantern kind while placing.
+        if (action === 'draft1') {
+          view.placeKind = 'ember';
+          setStatus('Placing an ember lantern — click the field to plant (45 embers). B cancels.');
+        } else if (action === 'draft2') {
+          if ((world.upgrades.frost || 0) >= 1) {
+            view.placeKind = 'frost';
+            setStatus('Placing a frost lantern — click the field to plant (45 embers). B cancels.');
+          } else {
+            setStatus('Frost lanterns are locked — take the Frost Lantern draft card.');
+          }
+        }
+      } else if (screen === 'draft') {
         const idx = Number(action.slice(-1)) - 1;
         if (draftPick(world, idx)) {
           screen = 'play';

@@ -9,6 +9,7 @@
 
 import { FIELD } from './config.js';
 import { makeRng } from './random.js';
+import { skyForWave } from './daylight.js';
 
 const SEED = makeRng(20261116);
 
@@ -149,14 +150,15 @@ export function drawMiniLantern(ctx, x, y, scale, time) {
 // --- the moon + a slow meteor ----------------------------------------------
 
 function drawMoon(ctx, world) {
+  const sky = skyForWave(world.wave);
   const mx = 838;
   const my = 88;
   const halo = ctx.createRadialGradient(mx, my, 10, mx, my, 90);
-  halo.addColorStop(0, 'rgba(253, 230, 138, 0.28)');
-  halo.addColorStop(1, 'rgba(253, 230, 138, 0)');
+  halo.addColorStop(0, `rgba(${sky.moonHalo}, 0.28)`);
+  halo.addColorStop(1, `rgba(${sky.moonHalo}, 0)`);
   ctx.fillStyle = halo;
   ctx.fillRect(mx - 90, my - 90, 180, 180);
-  ctx.fillStyle = '#fef3c7';
+  ctx.fillStyle = sky.moon;
   ctx.beginPath();
   ctx.arc(mx, my, 32, 0, Math.PI * 2);
   ctx.fill();
@@ -187,11 +189,12 @@ function drawMoon(ctx, world) {
 // --- back layer: sky furniture, ground, decor -------------------------------
 
 export function drawSceneryBack(ctx, world) {
+  const sky = skyForWave(world.wave);
   drawMoon(ctx, world);
-  fillRidge(ctx, HILLS_FAR, FIELD.h, '#0d1330');
-  fillRidge(ctx, HILLS_NEAR, FIELD.h, '#0a0f24');
+  fillRidge(ctx, HILLS_FAR, FIELD.h, sky.hillsFar);
+  fillRidge(ctx, HILLS_NEAR, FIELD.h, sky.hillsNear);
   for (const p of PINES) {
-    if (p.top) pine(ctx, p.x, 22, p.h * 0.6, p.w * 0.6, '#0d1330');
+    if (p.top) pine(ctx, p.x, 22, p.h * 0.6, p.w * 0.6, sky.hillsFar);
     else pine(ctx, p.x, FIELD.h + 4, p.h, p.w, '#080d20');
   }
   // Glowing mushrooms: caps breathe with the night.

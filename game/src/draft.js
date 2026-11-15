@@ -66,6 +66,13 @@ export const UPGRADES = [
     apply: (u) => { u.moteScore += 5; u.moteEnergy += 2; },
   },
   {
+    id: 'frost-lantern',
+    name: 'Frost Lantern',
+    desc: 'Unlock frost lanterns: chill wisps nearby',
+    max: 3,
+    apply: (u) => { u.frost = (u.frost || 0) + 1; },
+  },
+  {
     id: 'lantern-slot',
     name: 'Lantern Slot',
     desc: '+1 lantern you may plant',
@@ -112,6 +119,7 @@ export function makeUpgrades() {
     lanternRange: 0,
     lanternCooldown: 1, // multiplier on the base 0.85 s
     lanternDamage: 0,
+    frost: 0, // takes of the Frost Lantern card: 0 = frost lanterns locked
     taken: {}, // id -> takes so far
   };
 }

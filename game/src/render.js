@@ -6,11 +6,12 @@
 // radial sprites (fast, no shadowBlur). All motion reads the world's sim
 // time, so a staged shot renders identically every run.
 
-import { FIELD, PALETTE, TUNE } from './config.js';
+import { FIELD, PALETTE, TUNE, DIFFICULTIES, DIFFICULTY_IDS } from './config.js';
 import { makeRng } from './random.js';
 import { draftCardRects, buildLine } from './draft.js';
-import { LANTERN_COST } from './lanterns.js';
+import { LANTERN_COST, frostRadius } from './lanterns.js';
 import { drawSceneryBack, drawSceneryFront, drawMiniLantern } from './scenery.js';
+import { lightState, inLight, skyForWave } from './daylight.js';
 
 // Fixed stars and nebulae: one seeded layout, the same in every run.
 const STAR_RNG = makeRng(20261116);
@@ -75,23 +76,26 @@ function text(ctx, str, x, y, size, color, align, weight) {
   ctx.fillText(str, x, y);
 }
 
-function drawField(ctx, world) {
+function drawField(ctx, world, light) {
+  // The sky belongs to the wave: dusk, deep night, blood moon, dawn's
+  // edge — every wave of the night looks different from the last.
+  const sky = skyForWave(world.wave);
   const g = ctx.createLinearGradient(0, 0, 0, FIELD.h);
-  g.addColorStop(0, PALETTE.night0);
-  g.addColorStop(0.55, PALETTE.night1);
-  g.addColorStop(1, PALETTE.night2);
+  g.addColorStop(0, sky.top);
+  g.addColorStop(0.55, sky.mid);
+  g.addColorStop(1, sky.bottom);
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, FIELD.w, FIELD.h);
   for (const n of NEBULAE) {
     const grad = ctx.createRadialGradient(n.x, n.y, 10, n.x, n.y, n.r);
-    grad.addColorStop(0, `rgba(${n.color}, 0.16)`);
+    grad.addColorStop(0, `rgba(${n.color}, ${sky.nebula})`);
     grad.addColorStop(1, `rgba(${n.color}, 0)`);
     ctx.fillStyle = grad;
     ctx.fillRect(n.x - n.r, n.y - n.r, n.r * 2, n.r * 2);
   }
   for (const s of STARS) {
     const tw = 0.5 + 0.5 * Math.sin(world.time * (0.6 + s.layer * 0.3) + s.tw);
-    ctx.globalAlpha = 0.25 + 0.55 * tw * (1 - s.layer * 0.22);
+    ctx.globalAlpha = (0.25 + 0.55 * tw * (1 - s.layer * 0.22)) * sky.stars;
     ctx.fillStyle = '#e2e8f0';
     ctx.beginPath();
     ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
@@ -99,6 +103,52 @@ function drawField(ctx, world) {
   }
   ctx.globalAlpha = 1;
   drawSceneryBack(ctx, world);
+  // The Dawn Star's lit pool: a bright wash on the ground with a dashed
+  // gold rim, so the zone a lantern wants to stand in reads at a glance.
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const wash = ctx.createRadialGradient(light.x, light.y, 10, light.x, light.y, light.radius);
+  wash.addColorStop(0, 'rgba(255, 209, 102, 0.14)');
+  wash.addColorStop(0.7, 'rgba(255, 209, 102, 0.07)');
+  wash.addColorStop(1, 'rgba(255, 209, 102, 0)');
+  ctx.fillStyle = wash;
+  ctx.fillRect(light.x - light.radius, light.y - light.radius, light.radius * 2, light.radius * 2);
+  ctx.restore();
+  ctx.strokeStyle = 'rgba(253, 230, 138, 0.32)';
+  ctx.setLineDash([10, 8]);
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(light.x, light.y, light.radius, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  // The Dawn Star itself: a small bright orb hovering over its pool,
+  // drifting with it. It hangs just inside the pool, clear of the HUD
+  // bar and the boss-intro bars, so it reads in every screenshot.
+  const ox = light.x;
+  const oy = Math.max(70, Math.min(FIELD.h - 40, light.y + 26));
+  const orbHalo = ctx.createRadialGradient(ox, oy, 2, ox, oy, 52);
+  orbHalo.addColorStop(0, 'rgba(255, 230, 138, 0.55)');
+  orbHalo.addColorStop(1, 'rgba(255, 230, 138, 0)');
+  ctx.fillStyle = orbHalo;
+  ctx.fillRect(ox - 52, oy - 52, 104, 104);
+  ctx.strokeStyle = 'rgba(255, 230, 138, 0.6)';
+  ctx.lineWidth = 2;
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + world.time * 0.15;
+    ctx.beginPath();
+    ctx.moveTo(ox + Math.cos(a) * 17, oy + Math.sin(a) * 17);
+    ctx.lineTo(ox + Math.cos(a) * 26, oy + Math.sin(a) * 26);
+    ctx.stroke();
+  }
+  glow(ctx, ox, oy, 30, 'rgba(255, 209, 102, 0.9)');
+  ctx.fillStyle = '#fff7e6';
+  ctx.beginPath();
+  ctx.arc(ox, oy, 12, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#ffd166';
+  ctx.beginPath();
+  ctx.arc(ox, oy, 8, 0, Math.PI * 2);
+  ctx.fill();
   // The lighthouse tower: a fixed landmark at the top, sweeping its beams.
   const tx = FIELD.w / 2;
   const ty = 44;
@@ -129,10 +179,18 @@ function drawField(ctx, world) {
   ctx.fill();
 }
 
-function drawMotes(ctx, world) {
+function drawMotes(ctx, world, light) {
   for (const mote of world.motes) {
     const bob = Math.sin(mote.bob) * 2;
     const r = mote.r + (mote.storm ? 2 : 0);
+    // A mote inside the Dawn Star's light wears a gold ring: it pays +5.
+    if (inLight(mote.x, mote.y + bob, light)) {
+      ctx.strokeStyle = 'rgba(253, 224, 71, 0.85)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(mote.x, mote.y + bob, r + 5, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     if (mote.storm) {
       // Storm motes streak down like falling sparks.
       ctx.strokeStyle = 'rgba(255, 140, 66, 0.35)';
@@ -252,6 +310,22 @@ function drawWisps(ctx, world) {
       ctx.fill();
     }
     ctx.fillStyle = 'rgba(7, 11, 29, 0.85)';
+    if (w.kind === 'bulwark') {
+      // Armor ring + rivets: the bulwark is the only wisp that wears plate.
+      ctx.strokeStyle = '#475569';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(w.x, w.y, w.r + 2, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = '#cbd5e1';
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2 + 0.4;
+        ctx.beginPath();
+        ctx.arc(w.x + Math.cos(a) * (w.r + 2), w.y + Math.sin(a) * (w.r + 2), 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = 'rgba(7, 11, 29, 0.85)';
+    }
     if (w.kind === 'chaser') {
       // Horns + angry brow slashes.
       ctx.beginPath();
@@ -295,6 +369,14 @@ function drawWisps(ctx, world) {
     ctx.arc(w.x - 5 + ex, w.y - 2 + ey, 2.4, 0, Math.PI * 2);
     ctx.arc(w.x + 5 + ex, w.y - 2 + ey, 2.4, 0, Math.PI * 2);
     ctx.fill();
+    if (w.chilled) {
+      // A frost lantern is chilling this wisp: a pale-blue ring says so.
+      ctx.strokeStyle = 'rgba(125, 211, 252, 0.9)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(w.x, w.y, w.r + 6, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     if (w.kind === 'boss') {
       // Crown spikes + health bar.
       ctx.fillStyle = '#f43f5e';
@@ -324,37 +406,93 @@ function drawWisps(ctx, world) {
   }
 }
 
-function drawLanterns(ctx, world, view) {
+function drawLanterns(ctx, world, view, light) {
   for (const l of world.lanterns.list) {
-    glow(ctx, l.x, l.y - 12, 40 + (l.flash > 0 ? 14 : 0), 'rgba(253, 230, 138, 0.7)');
-    // Range ring, faint — visible while placing, whisper otherwise.
-    ctx.strokeStyle = view && view.placeMode ? 'rgba(253, 230, 138, 0.5)' : 'rgba(253, 230, 138, 0.07)';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.arc(l.x, l.y, world.lanterns.range, 0, Math.PI * 2);
-    ctx.stroke();
-    // Warm pool of light on the ground beneath the lamp.
-    const pool = ctx.createRadialGradient(l.x, l.y + 8, 2, l.x, l.y + 8, 46);
-    pool.addColorStop(0, 'rgba(253, 230, 138, 0.22)');
-    pool.addColorStop(1, 'rgba(253, 230, 138, 0)');
-    ctx.fillStyle = pool;
-    ctx.beginPath();
-    ctx.ellipse(l.x, l.y + 8, 46, 16, 0, 0, Math.PI * 2);
-    ctx.fill();
-    // Post + lamp, the flame flickering with sim time.
-    const flick = 1 + Math.sin(world.time * 6 + l.x) * 0.15;
-    ctx.fillStyle = '#78350f';
-    ctx.fillRect(l.x - 4, l.y - 6, 8, 16);
-    ctx.fillStyle = '#92400e';
-    ctx.fillRect(l.x - 9, l.y + 8, 18, 5);
-    ctx.fillStyle = '#fde68a';
-    ctx.beginPath();
-    ctx.ellipse(l.x, l.y - 12, 7, 9 * flick, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#fff7e6';
-    ctx.beginPath();
-    ctx.arc(l.x, l.y - 12, 3.5, 0, Math.PI * 2);
-    ctx.fill();
+    const frost = l.kind === 'frost';
+    if (frost) {
+      // Frost lantern: a pale-blue chill aura, wider in the Dawn Star's
+      // light, over a crystal body on a dark post. It never fires bolts.
+      const auraR = frostRadius(world.upgrades) * (l.lit ? 1.4 : 1);
+      const pulse = 0.1 + 0.05 * Math.sin(world.time * 2 + l.x);
+      ctx.fillStyle = `rgba(125, 211, 252, ${pulse})`;
+      ctx.beginPath();
+      ctx.arc(l.x, l.y, auraR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(125, 211, 252, 0.45)';
+      ctx.setLineDash([8, 8]);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(l.x, l.y, auraR, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      glow(ctx, l.x, l.y - 12, 30, 'rgba(125, 211, 252, 0.6)');
+      ctx.fillStyle = '#0c2d4d';
+      ctx.fillRect(l.x - 4, l.y - 6, 8, 16);
+      ctx.fillStyle = '#164e63';
+      ctx.fillRect(l.x - 9, l.y + 8, 18, 5);
+      ctx.fillStyle = '#bae6fd';
+      ctx.beginPath();
+      ctx.moveTo(l.x, l.y - 24);
+      ctx.lineTo(l.x + 7, l.y - 12);
+      ctx.lineTo(l.x, l.y);
+      ctx.lineTo(l.x - 7, l.y - 12);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#e0f2fe';
+      ctx.beginPath();
+      ctx.arc(l.x, l.y - 12, 3, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      glow(ctx, l.x, l.y - 12, 40 + (l.flash > 0 ? 14 : 0), 'rgba(253, 230, 138, 0.7)');
+      // Range ring: a lantern in the Dawn Star's light reaches 40% farther,
+      // and its ring shows it — bright gold instead of a whisper.
+      const reach = world.lanterns.range * (l.lit ? 1.4 : 1);
+      ctx.strokeStyle = l.lit
+        ? 'rgba(253, 224, 71, 0.5)'
+        : view && view.placeMode
+          ? 'rgba(253, 230, 138, 0.5)'
+          : 'rgba(253, 230, 138, 0.07)';
+      ctx.lineWidth = l.lit ? 2.5 : 1.5;
+      ctx.beginPath();
+      ctx.arc(l.x, l.y, reach, 0, Math.PI * 2);
+      ctx.stroke();
+      // Warm pool of light on the ground beneath the lamp.
+      const pool = ctx.createRadialGradient(l.x, l.y + 8, 2, l.x, l.y + 8, 46);
+      pool.addColorStop(0, 'rgba(253, 230, 138, 0.22)');
+      pool.addColorStop(1, 'rgba(253, 230, 138, 0)');
+      ctx.fillStyle = pool;
+      ctx.beginPath();
+      ctx.ellipse(l.x, l.y + 8, 46, 16, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Post + lamp, the flame flickering with sim time.
+      const flick = 1 + Math.sin(world.time * 6 + l.x) * 0.15;
+      ctx.fillStyle = '#78350f';
+      ctx.fillRect(l.x - 4, l.y - 6, 8, 16);
+      ctx.fillStyle = '#92400e';
+      ctx.fillRect(l.x - 9, l.y + 8, 18, 5);
+      ctx.fillStyle = '#fde68a';
+      ctx.beginPath();
+      ctx.ellipse(l.x, l.y - 12, 7, 9 * flick, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#fff7e6';
+      ctx.beginPath();
+      ctx.arc(l.x, l.y - 12, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    if (l.lit) {
+      // A small starburst over a lit lantern: it fires 25% faster here
+      // (ember), or its chill reaches farther (frost) — gold vs cyan.
+      ctx.strokeStyle = frost ? 'rgba(125, 211, 252, 0.9)' : 'rgba(253, 224, 71, 0.9)';
+      ctx.lineWidth = 2;
+      const sx = l.x;
+      const sy = l.y - 34;
+      ctx.beginPath();
+      ctx.moveTo(sx - 7, sy);
+      ctx.lineTo(sx + 7, sy);
+      ctx.moveTo(sx, sy - 7);
+      ctx.lineTo(sx, sy + 7);
+      ctx.stroke();
+    }
   }
   // Bolts in flight: bright streaks with a fading tail.
   for (const b of world.lanterns.bolts) {
@@ -375,27 +513,47 @@ function drawLanterns(ctx, world, view) {
     ctx.stroke();
     glow(ctx, b.x, b.y, 11, 'rgba(254, 243, 199, 0.9)');
   }
-  // Placement ghost: follows the pointer while B is armed.
+  // Placement ghost: follows the pointer while B is armed. 1 picks an
+  // ember lantern, 2 a frost one (once the draft card unlocked it).
   if (view && view.placeMode) {
     const p = view.pointer;
+    const kind = view.placeKind === 'frost' ? 'frost' : 'ember';
+    const unlocked = kind === 'ember' || (world.upgrades.frost || 0) >= 1;
     const slotsFree = world.lanterns.list.length < world.lanterns.slots;
     const afford = world.embers >= LANTERN_COST;
-    const ok = slotsFree && afford;
-    const label = !slotsFree
-      ? 'NO FREE LANTERN SLOT'
-      : !afford
-        ? `NEED ${LANTERN_COST} EMBERS`
-        : `CLICK TO PLANT — ${LANTERN_COST} EMBERS`;
-    ctx.strokeStyle = ok ? 'rgba(253, 230, 138, 0.7)' : 'rgba(251, 113, 133, 0.7)';
+    const ok = slotsFree && afford && unlocked;
+    const label = !unlocked
+      ? 'FROST LOCKED — TAKE THE FROST LANTERN CARD'
+      : !slotsFree
+        ? 'NO FREE LANTERN SLOT'
+        : !afford
+          ? `NEED ${LANTERN_COST} EMBERS`
+          : `CLICK TO PLANT ${kind === 'frost' ? 'FROST' : 'EMBER'} — ${LANTERN_COST} EMBERS`;
+    const ringR =
+      kind === 'frost'
+        ? frostRadius(world.upgrades) * (inLight(p.x, p.y, light) ? 1.4 : 1)
+        : world.lanterns.range * (inLight(p.x, p.y, light) ? 1.4 : 1);
+    ctx.strokeStyle = !ok
+      ? 'rgba(251, 113, 133, 0.7)'
+      : kind === 'frost'
+        ? 'rgba(125, 211, 252, 0.7)'
+        : 'rgba(253, 230, 138, 0.7)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(p.x, p.y, world.lanterns.range, 0, Math.PI * 2);
+    ctx.arc(p.x, p.y, ringR, 0, Math.PI * 2);
     ctx.stroke();
-    ctx.fillStyle = ok ? 'rgba(253, 230, 138, 0.85)' : 'rgba(251, 113, 133, 0.85)';
+    ctx.fillStyle = ok
+      ? kind === 'frost'
+        ? 'rgba(125, 211, 252, 0.85)'
+        : 'rgba(253, 230, 138, 0.85)'
+      : 'rgba(251, 113, 133, 0.85)';
     ctx.beginPath();
     ctx.arc(p.x, p.y - 12, 8, 0, Math.PI * 2);
     ctx.fill();
-    text(ctx, label, p.x, p.y + 30, 13, ok ? '#fde68a' : '#fb7185', 'center');
+    text(ctx, label, p.x, p.y + 30, 13, ok ? (kind === 'frost' ? '#bae6fd' : '#fde68a') : '#fb7185', 'center');
+    // Keep the hint on-canvas when the pointer hugs an edge.
+    const lx = Math.max(95, Math.min(FIELD.w - 95, p.x));
+    text(ctx, 'PRESS 1 EMBER · 2 FROST', lx, p.y + 48, 11, PALETTE.dim, 'center');
   }
 }
 
@@ -476,7 +634,7 @@ function drawHud(ctx, world) {
   text(ctx, `BEST ${Math.max(world.best, world.score).toLocaleString('en-US')}`, 14, 42, 11, PALETTE.dim);
   // Hearts.
   let hx = FIELD.w - 14;
-  const maxHearts = TUNE.hearts + world.upgrades.maxHearts;
+  const maxHearts = (DIFFICULTIES[world.difficulty] || DIFFICULTIES.normal).hearts + world.upgrades.maxHearts;
   for (let i = maxHearts - 1; i >= 0; i--) {
     ctx.fillStyle = i < e.hearts ? '#fb7185' : 'rgba(255,255,255,0.22)';
     ctx.font = '18px "Trebuchet MS", Verdana, sans-serif';
@@ -485,8 +643,13 @@ function drawHud(ctx, world) {
     ctx.fillText('♥', hx, 24);
     hx -= 22;
   }
-  // Wave + rings, centred.
-  text(ctx, `WAVE ${world.wave}/10`, FIELD.w / 2, 18, 17, PALETTE.cream, 'center');
+  // Wave + its sky phase, centred: every wave of the night has a name.
+  // Off-normal difficulties tag along, so a hard run reads as hard.
+  const diffTag =
+    world.difficulty && world.difficulty !== 'normal'
+      ? ` · ${DIFFICULTIES[world.difficulty].name}`
+      : '';
+  text(ctx, `WAVE ${world.wave}/10 — ${lightState(world).phase.name}${diffTag}`, FIELD.w / 2, 18, 17, PALETTE.cream, 'center');
   for (let i = 0; i < TUNE.ringScores.length; i++) {
     ctx.fillStyle = i < world.ringsLit ? '#ffd166' : 'rgba(255,255,255,0.25)';
     ctx.beginPath();
@@ -560,7 +723,26 @@ function drawHud(ctx, world) {
   }
 }
 
-function drawTitle(ctx, world) {
+// Difficulty buttons on the title screen: three in a row, keys 1 / 2 / 3
+// or click. The caller keeps the choice in view.difficulty.
+export function difficultyRects(w, h) {
+  const bw = 220;
+  const bh = 40;
+  const gap = 18;
+  const total = bw * 3 + gap * 2;
+  const x0 = (w - total) / 2;
+  const y0 = 462;
+  return DIFFICULTY_IDS.map((id, i) => ({
+    id,
+    key: String(i + 1),
+    x: x0 + i * (bw + gap),
+    y: y0,
+    w: bw,
+    h: bh,
+  }));
+}
+
+function drawTitle(ctx, world, view) {
   ctx.fillStyle = 'rgba(7, 11, 29, 0.72)';
   ctx.fillRect(0, 0, FIELD.w, FIELD.h);
   // Warm halo behind the title + standing lanterns flanking the screen.
@@ -574,7 +756,7 @@ function drawTitle(ctx, world) {
   drawMiniLantern(ctx, FIELD.w / 2 - 260, 470, 1.6, world.time);
   drawMiniLantern(ctx, FIELD.w / 2 + 260, 470, 1.6, world.time);
   text(ctx, 'LANTERNWARD', FIELD.w / 2, 108, 62, PALETTE.ember, 'center');
-  text(ctx, '— Hold the Last Light —', FIELD.w / 2, 152, 20, PALETTE.gold, 'center');
+  text(ctx, '— the light itself moves every wave —', FIELD.w / 2, 152, 20, PALETTE.gold, 'center');
   text(ctx, 'You are Ember, keeper of the last light. Night sends its wisps.', FIELD.w / 2, 198, 17, PALETTE.cream, 'center');
   text(ctx, 'Gather motes. Spend embers to plant lanterns — they fight for you.', FIELD.w / 2, 224, 17, PALETTE.cream, 'center');
   text(ctx, 'Light all 5 beacon rings and survive 10 waves until dawn.', FIELD.w / 2, 250, 17, PALETTE.cream, 'center');
@@ -582,14 +764,28 @@ function drawTitle(ctx, world) {
     'WASD / ARROWS or MOUSE — steer Ember',
     'SHIFT — dash      F — flare (banishes wisps)',
     'B then CLICK — plant a lantern (45 embers)',
+    'Each wave the dawn star moves — lanterns in its light reach farther',
     'P — pause      M — mute      R — restart',
     'Between waves: pick 1 of 3 upgrades — lanterns included',
   ];
-  lines.forEach((line, i) => text(ctx, line, FIELD.w / 2, 300 + i * 26, 15, PALETTE.dim, 'center'));
-  if (world.best > 0) text(ctx, `BEST SCORE ${world.best.toLocaleString('en-US')}`, FIELD.w / 2, 452, 16, PALETTE.gold, 'center');
+  lines.forEach((line, i) => text(ctx, line, FIELD.w / 2, 292 + i * 24, 15, PALETTE.dim, 'center'));
+  if (world.best > 0) text(ctx, `BEST SCORE ${world.best.toLocaleString('en-US')}`, FIELD.w / 2, 440, 16, PALETTE.gold, 'center');
+  // Difficulty row: the run's first decision, before the first mote.
+  const sel = (view && view.difficulty) || 'normal';
+  for (const rect of difficultyRects(FIELD.w, FIELD.h)) {
+    const diff = DIFFICULTIES[rect.id];
+    const active = rect.id === sel;
+    ctx.fillStyle = active ? 'rgba(255, 179, 71, 0.16)' : 'rgba(19, 26, 58, 0.9)';
+    ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+    ctx.strokeStyle = active ? '#ffd166' : '#475569';
+    ctx.lineWidth = active ? 2.5 : 1.5;
+    ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+    text(ctx, `${rect.key} · ${diff.name}`, rect.x + rect.w / 2, rect.y + 15, 13, active ? PALETTE.gold : PALETTE.dim, 'center');
+    text(ctx, diff.tag, rect.x + rect.w / 2, rect.y + 31, 11, PALETTE.dim, 'center');
+  }
   const pulse = 0.6 + 0.4 * Math.sin(world.time * 3);
   ctx.globalAlpha = pulse;
-  text(ctx, 'PRESS SPACE OR CLICK TO BEGIN', FIELD.w / 2, 508, 20, PALETTE.cream, 'center');
+  text(ctx, 'PRESS SPACE OR CLICK TO BEGIN', FIELD.w / 2, 530, 20, PALETTE.cream, 'center');
   ctx.globalAlpha = 1;
 }
 
@@ -656,6 +852,20 @@ function drawCardIcon(ctx, id, x, y) {
       ctx.arc(dx, dy, 3, 0, Math.PI * 2);
       ctx.fill();
     }
+  } else if (id === 'frost-lantern') {
+    // A six-spoke snowflake in frost blue.
+    ctx.strokeStyle = '#7dd3fc';
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * Math.PI;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a) * -11, Math.sin(a) * -11);
+      ctx.lineTo(Math.cos(a) * 11, Math.sin(a) * 11);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#7dd3fc';
+    ctx.beginPath();
+    ctx.arc(0, 0, 3.5, 0, Math.PI * 2);
+    ctx.fill();
   } else if (
     id === 'lantern-slot' ||
     id === 'beam-long' ||
@@ -693,8 +903,19 @@ function drawCardIcon(ctx, id, x, y) {
 function drawDraft(ctx, world) {
   ctx.fillStyle = 'rgba(7, 11, 29, 0.78)';
   ctx.fillRect(0, 0, FIELD.w, FIELD.h);
-  text(ctx, `WAVE ${world.wave} CLEARED`, FIELD.w / 2, 96, 30, PALETTE.gold, 'center');
+  text(ctx, `WAVE ${world.wave} CLEARED — ${lightState(world).phase.name}`, FIELD.w / 2, 96, 30, PALETTE.gold, 'center');
   text(ctx, 'Choose one upgrade — click it or press 1 / 2 / 3', FIELD.w / 2, 132, 16, PALETTE.cream, 'center');
+  if (world.wave < 10) {
+    text(
+      ctx,
+      `Next: WAVE ${world.wave + 1} — ${skyForWave(world.wave + 1).name} · the dawn star moves`,
+      FIELD.w / 2,
+      160,
+      14,
+      PALETTE.gold,
+      'center',
+    );
+  }
   const rects = draftCardRects(FIELD.w, FIELD.h);
   world.draftOptions.forEach((upgrade, i) => {
     const r = rects[i];
@@ -703,7 +924,8 @@ function drawDraft(ctx, world) {
     const isLanternCard =
       upgrade.id.startsWith('lantern') ||
       upgrade.id.startsWith('beam') ||
-      upgrade.id.startsWith('wick');
+      upgrade.id.startsWith('wick') ||
+      upgrade.id.startsWith('frost');
     ctx.strokeStyle = isLanternCard ? '#ffd166' : '#ffb347';
     ctx.lineWidth = isLanternCard ? 3 : 2;
     ctx.strokeRect(r.x, r.y, r.w, r.h);
@@ -788,6 +1010,9 @@ function drawEnd(ctx, world, won) {
 
 // The one draw call: field + entities + HUD, then the active screen.
 export function draw(ctx, world, screen, view) {
+  // The Dawn Star's state is pure sim state (wave + waveTime), so every
+  // frame of a run paints the same light in the same place.
+  const light = lightState(world);
   ctx.save();
   if (world.shake > 0) {
     // Jitter from sim time, never from the run's generator: rendering must
@@ -796,9 +1021,9 @@ export function draw(ctx, world, screen, view) {
     const jy = Math.cos(world.time * 83.3) * world.shake * 7;
     ctx.translate(jx, jy);
   }
-  drawField(ctx, world);
-  drawMotes(ctx, world);
-  drawLanterns(ctx, world, view);
+  drawField(ctx, world, light);
+  drawMotes(ctx, world, light);
+  drawLanterns(ctx, world, view, light);
   drawWisps(ctx, world);
   drawPickups(ctx, world);
   drawEmber(ctx, world);
@@ -806,7 +1031,33 @@ export function draw(ctx, world, screen, view) {
   drawSceneryFront(ctx, world);
   ctx.restore();
   if (screen === 'play' || screen === 'pause' || screen === 'draft') drawHud(ctx, world);
-  if (screen === 'title') drawTitle(ctx, world);
+  if (screen === 'play') {
+    if (world.boss && world.boss.age < 2.4) {
+      // Boss intro: letterbox bars top and bottom, the field still visible
+      // between them. The Herald's arrival is the run's dramatic peak.
+      const a = world.boss.age < 0.3 ? world.boss.age / 0.3 : world.boss.age > 1.9 ? (2.4 - world.boss.age) / 0.5 : 1;
+      ctx.fillStyle = `rgba(20, 4, 10, ${0.82 * a})`;
+      ctx.fillRect(0, 0, FIELD.w, 84);
+      ctx.fillRect(0, FIELD.h - 70, FIELD.w, 70);
+      ctx.globalAlpha = a;
+      text(ctx, 'THE GLOOM HERALD', FIELD.w / 2, 38, 34, '#fb7185', 'center');
+      text(ctx, "WAVE 10 — DAWN'S EDGE · 26 HP · IT SPAWNS DRIFTERS", FIELD.w / 2, 66, 13, PALETTE.cream, 'center');
+      text(ctx, 'BANISH IT BEFORE DAWN', FIELD.w / 2, FIELD.h - 44, 16, PALETTE.gold, 'center');
+      text(ctx, 'LANTERNS IN THE DAWN LIGHT REACH 40% FARTHER', FIELD.w / 2, FIELD.h - 22, 12, PALETTE.dim, 'center');
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = `rgba(244, 63, 94, ${0.4 * a})`;
+      ctx.lineWidth = 8;
+      ctx.strokeRect(4, 4, FIELD.w - 8, FIELD.h - 8);
+    } else if (world.waveTime < 2.2) {
+      // Wave banner: the night's new name, fading as the wave opens.
+      const a = Math.max(0, 1 - world.waveTime / 2.2);
+      ctx.globalAlpha = a;
+      text(ctx, `WAVE ${world.wave} — ${light.phase.name}`, FIELD.w / 2, 150, 30, PALETTE.gold, 'center');
+      text(ctx, 'THE DAWN STAR SHIFTS — PLANT LANTERNS IN ITS LIGHT', FIELD.w / 2, 182, 13, PALETTE.cream, 'center');
+      ctx.globalAlpha = 1;
+    }
+  }
+  if (screen === 'title') drawTitle(ctx, world, view);
   if (screen === 'pause') {
     ctx.fillStyle = 'rgba(7, 11, 29, 0.66)';
     ctx.fillRect(0, 0, FIELD.w, FIELD.h);

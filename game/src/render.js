@@ -10,6 +10,7 @@ import { FIELD, PALETTE, TUNE } from './config.js';
 import { makeRng } from './random.js';
 import { draftCardRects, buildLine } from './draft.js';
 import { LANTERN_COST } from './lanterns.js';
+import { drawSceneryBack, drawSceneryFront, drawMiniLantern } from './scenery.js';
 
 // Fixed stars and nebulae: one seeded layout, the same in every run.
 const STAR_RNG = makeRng(20261116);
@@ -52,7 +53,11 @@ function glowSprite(color) {
 
 function glow(ctx, x, y, radius, color) {
   const img = glowSprite(color);
+  // Additive light: overlapping glows bloom instead of washing out.
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
   ctx.drawImage(img, x - radius, y - radius, radius * 2, radius * 2);
+  ctx.restore();
 }
 
 function rgba(hex, alpha) {
@@ -93,6 +98,7 @@ function drawField(ctx, world) {
     ctx.fill();
   }
   ctx.globalAlpha = 1;
+  drawSceneryBack(ctx, world);
   // The lighthouse tower: a fixed landmark at the top, sweeping its beams.
   const tx = FIELD.w / 2;
   const ty = 44;
@@ -127,6 +133,15 @@ function drawMotes(ctx, world) {
   for (const mote of world.motes) {
     const bob = Math.sin(mote.bob) * 2;
     const r = mote.r + (mote.storm ? 2 : 0);
+    if (mote.storm) {
+      // Storm motes streak down like falling sparks.
+      ctx.strokeStyle = 'rgba(255, 140, 66, 0.35)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(mote.x - 14, mote.y + bob + 10);
+      ctx.lineTo(mote.x, mote.y + bob);
+      ctx.stroke();
+    }
     glow(ctx, mote.x, mote.y + bob, r * 3.2, mote.storm ? 'rgba(255, 140, 66, 0.9)' : 'rgba(255, 209, 102, 0.85)');
     ctx.fillStyle = mote.storm ? '#ff8c42' : '#ffd166';
     ctx.beginPath();
@@ -136,6 +151,16 @@ function drawMotes(ctx, world) {
     ctx.beginPath();
     ctx.arc(mote.x - 2, mote.y + bob - 2, r * 0.35, 0, Math.PI * 2);
     ctx.fill();
+    // Four-point star glint, so motes read even at thumbnail size.
+    const gl = r * 1.6;
+    ctx.strokeStyle = 'rgba(255, 247, 230, 0.9)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(mote.x - gl, mote.y + bob);
+    ctx.lineTo(mote.x + gl, mote.y + bob);
+    ctx.moveTo(mote.x, mote.y + bob - gl);
+    ctx.lineTo(mote.x, mote.y + bob + gl);
+    ctx.stroke();
   }
 }
 
@@ -151,14 +176,84 @@ function drawWisps(ctx, world) {
       ctx.stroke();
       ctx.setLineDash([]);
     }
+    // Facing: hunters look at the keeper, wanderers follow their heading.
+    const facing =
+      w.kind === 'chaser' || w.kind === 'boss'
+        ? Math.atan2(world.ember.y - w.y, world.ember.x - w.x)
+        : w.heading;
+    const fx = Math.cos(facing);
+    const fy = Math.sin(facing);
+    // Tail: three fading puffs trailing behind the direction of travel,
+    // so every kind reads as moving, not hovering.
+    for (let i = 1; i <= 3; i++) {
+      ctx.globalAlpha = 0.28 - i * 0.07;
+      ctx.fillStyle = w.color;
+      ctx.beginPath();
+      ctx.arc(
+        w.x - fx * i * w.r * 0.9,
+        w.y - fy * i * w.r * 0.9,
+        w.r * (0.62 - i * 0.13),
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    if (w.kind === 'boss') {
+      // Ground shadow + a slow-turning dark aura ring: the Herald owns
+      // the ground it stands on.
+      ctx.fillStyle = 'rgba(3, 6, 18, 0.55)';
+      ctx.beginPath();
+      ctx.ellipse(w.x, w.y + w.r + 10, w.r * 1.15, 10, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.save();
+      ctx.translate(w.x, w.y);
+      ctx.rotate(world.time * 0.7);
+      ctx.strokeStyle = 'rgba(244, 63, 94, 0.65)';
+      ctx.setLineDash([18, 12]);
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(0, 0, w.r + 14, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+      ctx.setLineDash([]);
+    }
     glow(ctx, w.x, w.y, w.r * 2.6, rgba(w.color, 0.55));
     ctx.fillStyle = w.color;
-    ctx.beginPath();
-    ctx.arc(w.x, w.y, w.r, 0, Math.PI * 2);
-    ctx.fill();
+    if (w.kind === 'splitter') {
+      // Figure-eight body: two lobes side by side, split down the middle.
+      const px = -fy;
+      const py = fx;
+      ctx.beginPath();
+      ctx.arc(w.x + px * 6, w.y + py * 6, w.r * 0.78, 0, Math.PI * 2);
+      ctx.arc(w.x - px * 6, w.y - py * 6, w.r * 0.78, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (w.kind === 'swift') {
+      // A comet: stretched along its heading, with speed streaks.
+      ctx.save();
+      ctx.translate(w.x, w.y);
+      ctx.rotate(facing);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, w.r * 1.5, w.r * 0.72, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      ctx.strokeStyle = rgba(w.color, 0.9);
+      ctx.lineWidth = 2.5;
+      for (let i = 0; i < 3; i++) {
+        const off = (i - 1) * 6;
+        ctx.beginPath();
+        ctx.moveTo(w.x - fx * (w.r + 8) - fy * off, w.y - fy * (w.r + 8) + fx * off);
+        ctx.lineTo(w.x - fx * (w.r + 22) - fy * off, w.y - fy * (w.r + 22) + fx * off);
+        ctx.stroke();
+      }
+    } else {
+      ctx.beginPath();
+      ctx.arc(w.x, w.y, w.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.fillStyle = 'rgba(7, 11, 29, 0.85)';
     if (w.kind === 'chaser') {
-      // Horns.
+      // Horns + angry brow slashes.
       ctx.beginPath();
       ctx.moveTo(w.x - w.r * 0.7, w.y - w.r * 0.5);
       ctx.lineTo(w.x - w.r * 1.15, w.y - w.r * 1.25);
@@ -171,17 +266,21 @@ function drawWisps(ctx, world) {
       ctx.lineTo(w.x + w.r * 0.25, w.y - w.r * 0.8);
       ctx.closePath();
       ctx.fill();
+      ctx.strokeStyle = 'rgba(7, 11, 29, 0.85)';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(w.x - 8, w.y - 8);
+      ctx.lineTo(w.x - 2, w.y - 5);
+      ctx.moveTo(w.x + 8, w.y - 8);
+      ctx.lineTo(w.x + 2, w.y - 5);
+      ctx.stroke();
     } else if (w.kind === 'splitter') {
+      // A dark seam down the middle where it will split.
+      ctx.strokeStyle = 'rgba(7, 11, 29, 0.85)';
+      ctx.lineWidth = 2.5;
       ctx.beginPath();
-      ctx.arc(w.x - 5, w.y, 5, 0, Math.PI * 2);
-      ctx.arc(w.x + 5, w.y, 5, 0, Math.PI * 2);
-      ctx.fill();
-    } else if (w.kind === 'swift') {
-      ctx.strokeStyle = rgba(w.color, 0.9);
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(w.x - w.r - 12, w.y);
-      ctx.lineTo(w.x - w.r + 2, w.y);
+      ctx.moveTo(w.x - fy * w.r * 0.7, w.y - fx * w.r * 0.7);
+      ctx.lineTo(w.x + fy * w.r * 0.7, w.y + fx * w.r * 0.7);
       ctx.stroke();
     }
     // Eyes: two pale dots that face the keeper.
@@ -234,29 +333,47 @@ function drawLanterns(ctx, world, view) {
     ctx.beginPath();
     ctx.arc(l.x, l.y, world.lanterns.range, 0, Math.PI * 2);
     ctx.stroke();
-    // Post + lamp.
+    // Warm pool of light on the ground beneath the lamp.
+    const pool = ctx.createRadialGradient(l.x, l.y + 8, 2, l.x, l.y + 8, 46);
+    pool.addColorStop(0, 'rgba(253, 230, 138, 0.22)');
+    pool.addColorStop(1, 'rgba(253, 230, 138, 0)');
+    ctx.fillStyle = pool;
+    ctx.beginPath();
+    ctx.ellipse(l.x, l.y + 8, 46, 16, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Post + lamp, the flame flickering with sim time.
+    const flick = 1 + Math.sin(world.time * 6 + l.x) * 0.15;
     ctx.fillStyle = '#78350f';
     ctx.fillRect(l.x - 4, l.y - 6, 8, 16);
     ctx.fillStyle = '#92400e';
     ctx.fillRect(l.x - 9, l.y + 8, 18, 5);
     ctx.fillStyle = '#fde68a';
     ctx.beginPath();
-    ctx.arc(l.x, l.y - 12, 8, 0, Math.PI * 2);
+    ctx.ellipse(l.x, l.y - 12, 7, 9 * flick, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#fff7e6';
     ctx.beginPath();
     ctx.arc(l.x, l.y - 12, 3.5, 0, Math.PI * 2);
     ctx.fill();
   }
-  // Bolts in flight.
+  // Bolts in flight: bright streaks with a fading tail.
   for (const b of world.lanterns.bolts) {
-    ctx.strokeStyle = '#fef3c7';
-    ctx.lineWidth = 3;
+    const t = b.target;
+    const dx = t ? t.x - b.x : 0;
+    const dy = t ? t.y - b.y : -6;
+    const d = Math.hypot(dx, dy) || 1;
+    const ux = dx / d;
+    const uy = dy / d;
+    const streak = ctx.createLinearGradient(b.x - ux * 26, b.y - uy * 26, b.x, b.y);
+    streak.addColorStop(0, 'rgba(254, 243, 199, 0)');
+    streak.addColorStop(1, '#fef3c7');
+    ctx.strokeStyle = streak;
+    ctx.lineWidth = 3.5;
     ctx.beginPath();
-    ctx.moveTo(b.x, b.y);
-    ctx.lineTo(b.x - (b.target ? (b.target.x - b.x) * 0.02 : 0), b.y - (b.target ? (b.target.y - b.y) * 0.02 : 6));
+    ctx.moveTo(b.x - ux * 26, b.y - uy * 26);
+    ctx.lineTo(b.x, b.y);
     ctx.stroke();
-    glow(ctx, b.x, b.y, 10, 'rgba(254, 243, 199, 0.9)');
+    glow(ctx, b.x, b.y, 11, 'rgba(254, 243, 199, 0.9)');
   }
   // Placement ghost: follows the pointer while B is armed.
   if (view && view.placeMode) {
@@ -285,6 +402,10 @@ function drawLanterns(ctx, world, view) {
 function drawEmber(ctx, world) {
   const e = world.ember;
   if (e.invuln > 0 && Math.floor(world.time * 12) % 2 === 0) return; // blink while invulnerable
+  ctx.fillStyle = 'rgba(3, 6, 18, 0.5)';
+  ctx.beginPath();
+  ctx.ellipse(e.x, e.y + e.r + 4, e.r + 6, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
   glow(ctx, e.x, e.y, 34, 'rgba(255, 179, 71, 0.85)');
   if (e.shield) {
     ctx.strokeStyle = 'rgba(125, 211, 252, 0.9)';
@@ -328,6 +449,8 @@ function drawPickups(ctx, world) {
 }
 
 function drawParticles(ctx, world) {
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
   for (const p of world.particles) {
     ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
     ctx.fillStyle = p.color;
@@ -335,6 +458,7 @@ function drawParticles(ctx, world) {
     ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
     ctx.fill();
   }
+  ctx.restore();
   ctx.globalAlpha = 1;
   for (const f of world.floaters) {
     ctx.globalAlpha = Math.max(0, f.life);
@@ -369,11 +493,24 @@ function drawHud(ctx, world) {
     ctx.arc(FIELD.w / 2 - 50 + i * 25, 36, 5, 0, Math.PI * 2);
     ctx.fill();
   }
+  // Dawn progress: how much of the night is behind the keeper.
+  ctx.fillStyle = 'rgba(255,255,255,0.18)';
+  ctx.fillRect(FIELD.w / 2 - 50, 46, 100, 4);
+  ctx.fillStyle = '#ffd166';
+  ctx.fillRect(FIELD.w / 2 - 50, 46, 100 * (world.wave / 10), 4);
   if (world.stormTimer > 0) {
     text(ctx, '⚡ EMBER STORM — MOTES RAIN!', FIELD.w / 2, 58, 14, '#ff8c42', 'center');
   }
   if (world.boss) {
     text(ctx, 'THE GLOOM HERALD IS HERE', FIELD.w / 2, 58, 14, '#fb7185', 'center');
+    const bw = 260;
+    ctx.fillStyle = 'rgba(7, 11, 29, 0.8)';
+    ctx.fillRect(FIELD.w / 2 - bw / 2, 66, bw, 8);
+    ctx.fillStyle = '#f43f5e';
+    ctx.fillRect(FIELD.w / 2 - bw / 2, 66, bw * Math.max(0, world.boss.hp / world.boss.maxHp), 8);
+    ctx.strokeStyle = 'rgba(251, 113, 133, 0.8)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(FIELD.w / 2 - bw / 2, 66, bw, 8);
   }
   // Bottom bar: flare, combo, embers, lanterns, pickup.
   const flareCost = Math.max(30, TUNE.flareCost + world.upgrades.flareCost);
@@ -387,7 +524,19 @@ function drawHud(ctx, world) {
   if (world.combo >= 4) {
     text(ctx, `COMBO x${mult}`, 330, FIELD.h - 21, 15, '#ffd166');
   }
+  // Ember gem + lantern glyphs, so the economy reads at a glance.
+  ctx.save();
+  ctx.translate(458, FIELD.h - 21);
+  ctx.rotate(Math.PI / 4);
+  ctx.fillStyle = '#fde68a';
+  ctx.fillRect(-5, -5, 10, 10);
+  ctx.restore();
   text(ctx, `EMBERS ${world.embers}`, 470, FIELD.h - 21, 15, '#fde68a');
+  ctx.fillStyle = '#fde68a';
+  ctx.fillRect(606, FIELD.h - 27, 3, 10);
+  ctx.beginPath();
+  ctx.arc(607.5, FIELD.h - 29, 4, 0, Math.PI * 2);
+  ctx.fill();
   text(
     ctx,
     `LANTERNS ${world.lanterns.list.length}/${world.lanterns.slots} [B]`,
@@ -414,6 +563,16 @@ function drawHud(ctx, world) {
 function drawTitle(ctx, world) {
   ctx.fillStyle = 'rgba(7, 11, 29, 0.72)';
   ctx.fillRect(0, 0, FIELD.w, FIELD.h);
+  // Warm halo behind the title + standing lanterns flanking the screen.
+  const halo = ctx.createRadialGradient(FIELD.w / 2, 108, 10, FIELD.w / 2, 108, 300);
+  halo.addColorStop(0, 'rgba(255, 179, 71, 0.20)');
+  halo.addColorStop(1, 'rgba(255, 179, 71, 0)');
+  ctx.fillStyle = halo;
+  ctx.fillRect(FIELD.w / 2 - 300, 108 - 300, 600, 600);
+  drawMiniLantern(ctx, FIELD.w / 2 - 330, 120, 1.1, world.time);
+  drawMiniLantern(ctx, FIELD.w / 2 + 330, 120, 1.1, world.time);
+  drawMiniLantern(ctx, FIELD.w / 2 - 260, 470, 1.6, world.time);
+  drawMiniLantern(ctx, FIELD.w / 2 + 260, 470, 1.6, world.time);
   text(ctx, 'LANTERNWARD', FIELD.w / 2, 108, 62, PALETTE.ember, 'center');
   text(ctx, '— Hold the Last Light —', FIELD.w / 2, 152, 20, PALETTE.gold, 'center');
   text(ctx, 'You are Ember, keeper of the last light. Night sends its wisps.', FIELD.w / 2, 198, 17, PALETTE.cream, 'center');
@@ -434,6 +593,103 @@ function drawTitle(ctx, world) {
   ctx.globalAlpha = 1;
 }
 
+// One small glyph per upgrade, so the draft reads at thumbnail size.
+function drawCardIcon(ctx, id, x, y) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.strokeStyle = '#ffd166';
+  ctx.fillStyle = '#ffd166';
+  ctx.lineWidth = 2;
+  if (id === 'heart') {
+    ctx.font = '20px "Trebuchet MS", Verdana, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#fb7185';
+    ctx.fillText('♥', 0, 0);
+  } else if (id === 'flare-wide' || id === 'flare-kindled') {
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a) * 6, Math.sin(a) * 6);
+      ctx.lineTo(Math.cos(a) * 12, Math.sin(a) * 12);
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.arc(0, 0, 5, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (id === 'dash-swift') {
+    ctx.beginPath();
+    ctx.moveTo(-10, -6);
+    ctx.lineTo(2, 0);
+    ctx.lineTo(-10, 6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(0, -6);
+    ctx.lineTo(12, 0);
+    ctx.lineTo(0, 6);
+    ctx.closePath();
+    ctx.fill();
+  } else if (id === 'magnet-strong') {
+    ctx.beginPath();
+    ctx.arc(0, -2, 8, Math.PI, 0, false);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-8, -2);
+    ctx.lineTo(-8, 8);
+    ctx.moveTo(8, -2);
+    ctx.lineTo(8, 8);
+    ctx.stroke();
+  } else if (id === 'combo-long') {
+    ctx.beginPath();
+    ctx.arc(-5, 0, 5, 0, Math.PI * 2);
+    ctx.arc(5, 0, 5, 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (id === 'wings-swift') {
+    ctx.beginPath();
+    ctx.ellipse(-7, 0, 8, 4, -0.5, 0, Math.PI * 2);
+    ctx.ellipse(7, 0, 8, 4, 0.5, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (id === 'motes-rich') {
+    for (const [dx, dy] of [[-7, -4], [6, -6], [0, 5]]) {
+      ctx.beginPath();
+      ctx.arc(dx, dy, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (
+    id === 'lantern-slot' ||
+    id === 'beam-long' ||
+    id === 'wick-rapid' ||
+    id === 'wick-heavy'
+  ) {
+    ctx.fillRect(-2, -2, 4, 10);
+    ctx.beginPath();
+    ctx.arc(0, -6, 5, 0, Math.PI * 2);
+    ctx.fill();
+    if (id === 'beam-long') {
+      ctx.beginPath();
+      ctx.moveTo(6, -6);
+      ctx.lineTo(14, -6);
+      ctx.moveTo(6, -2);
+      ctx.lineTo(12, -2);
+      ctx.stroke();
+    }
+    if (id === 'wick-heavy') {
+      ctx.beginPath();
+      ctx.moveTo(8, -12);
+      ctx.lineTo(4, -4);
+      ctx.lineTo(8, -4);
+      ctx.lineTo(4, 4);
+      ctx.stroke();
+    }
+  } else {
+    ctx.beginPath();
+    ctx.arc(0, 0, 6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 function drawDraft(ctx, world) {
   ctx.fillStyle = 'rgba(7, 11, 29, 0.78)';
   ctx.fillRect(0, 0, FIELD.w, FIELD.h);
@@ -444,9 +700,15 @@ function drawDraft(ctx, world) {
     const r = rects[i];
     ctx.fillStyle = 'rgba(19, 26, 58, 0.95)';
     ctx.fillRect(r.x, r.y, r.w, r.h);
-    ctx.strokeStyle = '#ffb347';
-    ctx.lineWidth = 2;
+    const isLanternCard =
+      upgrade.id.startsWith('lantern') ||
+      upgrade.id.startsWith('beam') ||
+      upgrade.id.startsWith('wick');
+    ctx.strokeStyle = isLanternCard ? '#ffd166' : '#ffb347';
+    ctx.lineWidth = isLanternCard ? 3 : 2;
     ctx.strokeRect(r.x, r.y, r.w, r.h);
+    if (isLanternCard) text(ctx, '✦ LANTERN', r.x + r.w - 12, r.y + 20, 11, PALETTE.gold, 'right');
+    drawCardIcon(ctx, upgrade.id, r.x + r.w / 2, r.y + 62);
     text(ctx, `${i + 1}`, r.x + 16, r.y + 20, 14, PALETTE.dim);
     text(ctx, upgrade.name, r.x + r.w / 2, r.y + 44, 17, PALETTE.cream, 'center');
     // Wrap the description over two lines.
@@ -471,8 +733,28 @@ function drawDraft(ctx, world) {
 }
 
 function drawEnd(ctx, world, won) {
-  ctx.fillStyle = won ? 'rgba(255, 209, 102, 0.16)' : 'rgba(7, 11, 29, 0.78)';
-  ctx.fillRect(0, 0, FIELD.w, FIELD.h);
+  if (won) {
+    // Dawn breaks: warm light rises from the horizon, and all five
+    // beacon rings stand lit across it.
+    ctx.fillStyle = 'rgba(7, 11, 29, 0.72)';
+    ctx.fillRect(0, 0, FIELD.w, FIELD.h);
+    const dawn = ctx.createLinearGradient(0, FIELD.h * 0.45, 0, FIELD.h);
+    dawn.addColorStop(0, 'rgba(255, 209, 102, 0.05)');
+    dawn.addColorStop(1, 'rgba(255, 140, 66, 0.34)');
+    ctx.fillStyle = dawn;
+    ctx.fillRect(0, FIELD.h * 0.45, FIELD.w, FIELD.h * 0.55);
+    for (let i = 0; i < 5; i++) {
+      const rx = FIELD.w / 2 - 160 + i * 80;
+      glow(ctx, rx, FIELD.h - 66, 26, 'rgba(255, 209, 102, 0.9)');
+      ctx.fillStyle = '#ffd166';
+      ctx.beginPath();
+      ctx.arc(rx, FIELD.h - 66, 6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else {
+    ctx.fillStyle = 'rgba(7, 11, 29, 0.78)';
+    ctx.fillRect(0, 0, FIELD.w, FIELD.h);
+  }
   text(ctx, won ? 'DAWN BREAKS — YOU WIN!' : 'THE LIGHT FADES', FIELD.w / 2, 130, 44, won ? '#ffd166' : '#fb7185', 'center');
   text(
     ctx,
@@ -521,6 +803,7 @@ export function draw(ctx, world, screen, view) {
   drawPickups(ctx, world);
   drawEmber(ctx, world);
   drawParticles(ctx, world);
+  drawSceneryFront(ctx, world);
   ctx.restore();
   if (screen === 'play' || screen === 'pause' || screen === 'draft') drawHud(ctx, world);
   if (screen === 'title') drawTitle(ctx, world);

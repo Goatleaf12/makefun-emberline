@@ -4,6 +4,7 @@ import { createWorld, step, draftPick, effFlareCost, effFlareRadius } from './wo
 import { LANTERN_COST, SUN_COST, STORM_COST } from './lanterns.js';
 import { makeCampaign, completeNight, buyMeta, chooseRelic, META_PRIORITY } from './campaign.js';
 import { defaultMastery, masteryGain, applyMasteryGain, masteryLevel, masteryTitle } from './mastery.js';
+import { HOUSE_RECORDS } from './records.js';
 
 // Draft picks the autopilot prefers, best first.
 const DRAFT_PRIORITY = [
@@ -21,6 +22,9 @@ const DRAFT_PRIORITY = [
   'combo-long',
   'dash-swift',
   'flare-kindled',
+  // Deep cards sit last, so the autopilot's picks in the first three nights never change.
+  'flare-burn',
+  'ember-ward',
 ];
 
 // One autopilot decision: where to steer, whether to dash, what to do.
@@ -129,11 +133,11 @@ export function playSteps(world, maxSteps, opts = {}) {
   return steps;
 }
 
-// Play a whole campaign: night 1, map buys, night 2, map buys, night 3. Returns { campaign, world, screen } ('won' | 'lost' | 'map'). Every night starts from a fixed seed (seed + night * 1000).
+// Play a whole campaign: night 1, map buys, night 2, map buys, night 3, map buys, night 4. Returns { campaign, world, screen } ('won' | 'lost' | 'map'). Every night starts from a fixed seed (seed + night * 1000).
 export function playCampaign(seed, difficulty = 'normal', opts = {}) {
   const campaign = makeCampaign();
   let world = createWorld(seed, 0, difficulty, campaign);
-  for (let night = 1; night <= 3; night++) {
+  for (let night = 1; night <= 4; night++) {
     playSteps(world, 60 * 60 * 12);
     if (world.phase === 'lost') return { campaign, world, screen: 'lost' };
     if (world.phase === 'won') {
@@ -166,6 +170,10 @@ export function stageShot(kind, seed, difficulty = 'normal') {
   const world = createWorld(seed, 0, difficulty);
   const view = { placeMode: false, pointer: { x: 480, y: 300 } };
   if (kind === 'title') {
+    // The title shows REAL records: best scores the autopilot actually played (see records.js),
+    // and the mastery those same runs banked — never a made-up number.
+    view.bests = { ...HOUSE_RECORDS.bests };
+    view.mastery = { ...HOUSE_RECORDS.mastery };
     return { world, screen: 'title', view, campaign: world.campaign };
   }
   if (kind === 'endless') {
@@ -214,13 +222,20 @@ export function stageShot(kind, seed, difficulty = 'normal') {
     return { world, screen: 'play', view, campaign: world.campaign };
   }
   if (kind === 'end') {
-    // First seed whose whole campaign is won stages the win screen.
+    // First seed whose whole campaign is won stages the win screen, with the mastery
+    // the winning run banked — the same gain the live game shows on its win screen.
+    const stageWon = (run) => {
+      const gain = masteryGain(run.world, true);
+      view.mastery = applyMasteryGain(defaultMastery(), gain, true, run.world.stats.bosses);
+      view.masteryGain = { xp: gain, level: masteryLevel(view.mastery), title: masteryTitle(masteryLevel(view.mastery)) };
+      return { world: run.world, screen: 'won', view, campaign: run.campaign };
+    };
     for (let s = seed; s < seed + 24; s++) {
       const run = playCampaign(s, 'gentle');
-      if (run.screen === 'won') return { world: run.world, screen: 'won', view, campaign: run.campaign };
+      if (run.screen === 'won') return stageWon(run);
     }
     const run = playCampaign(seed, 'gentle');
-    return { world: run.world, screen: run.screen, view, campaign: run.campaign };
+    return run.screen === 'won' ? stageWon(run) : { world: run.world, screen: run.screen, view, campaign: run.campaign };
   }
   if (kind === 'rushdraft') {
     // Beat boss 1, freeze on the inter-boss draft: "BOSS 1 DOWN" header, next-boss preview, three cards.

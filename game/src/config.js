@@ -60,9 +60,11 @@ export function waveSpec(wave, difficulty = 'normal', night = 1, endless = false
   if (wave >= 5) kinds.push('bulwark');
   if ((night >= 2 || (endless && wave >= 12)) && wave >= 2) kinds.push('gloom');
   if ((night >= 3 || (endless && wave >= 15)) && wave >= 3) kinds.push('spark');
+  // The mirage only haunts the final night and the deep endless waves: nights 1-3 never see it.
+  if ((night >= 4 || (endless && wave >= 18)) && wave >= 4) kinds.push('mirage');
   const diff = DIFFICULTIES[difficulty] || DIFFICULTIES.normal;
-  const nightCount = night >= 3 ? 1 : 0;
-  const nightSpeed = night >= 3 ? 1.06 : night === 2 ? 1.03 : 1;
+  const nightCount = night >= 4 ? 2 : night >= 3 ? 1 : 0;
+  const nightSpeed = night >= 4 ? 1.1 : night >= 3 ? 1.06 : night === 2 ? 1.03 : 1;
   const endlessSpeed = endless && wave > 10 ? 1 + 0.015 * (wave - 10) : 1;
   return {
     count: Math.max(3, (wave === 1 ? 5 : 5 + wave * 2) + diff.count + nightCount),
@@ -81,6 +83,7 @@ export const WISP_KINDS = {
   bulwark: { hp: 3, speed: 0.7, bonus: 30, radius: 18, color: '#94a3b8' },
   gloom: { hp: 4, speed: 0.6, bonus: 40, radius: 20, color: '#8b7cc8' },
   spark: { hp: 1, speed: 1.9, bonus: 10, radius: 10, color: '#facc15' },
+  mirage: { hp: 1, speed: 1.3, bonus: 20, radius: 13, color: '#e879f9' },
   boss: { hp: 26, speed: 0.55, bonus: 500, radius: 34, color: PALETTE.wispBoss },
 };
 

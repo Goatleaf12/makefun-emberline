@@ -6,13 +6,15 @@
 
 LANTERNWARD — tower defense where the light itself moves every wave: an original top-down arcade tower-defence game where Ember the firefly gathers light motes, plants fighting lanterns, dodges shadow wisps, and lights five beacon rings before dawn across 10 waves — ending in a boss wave, the Gloom Herald. Every wave the Dawn Star moves to a new sky, and lanterns standing in its light reach 40% farther and fire 25% faster.
 
-**A campaign of three nights (new in v11):** one night is ten waves; a campaign is three nights in a row, each with its own objective and its own boss — Night 1 First Light (light all 5 rings, the Gloom Herald), Night 2 The Long Dark (banish 40 wisps, the Hollow King, gloom wisps join), Night 3 Dawn's Edge (gather 120 motes, the Night Itself, spark wisps join). Between nights the campaign map opens: spend Dawn Shards (earned from rings, objectives and bosses) on permanent upgrades — an extra heart, a lantern slot, or the Sun Lantern — and choose one Dawn Relic for the coming night (Twin Flames, Golden Motes, or Stout Heart). Draft upgrades carry across nights, lanterns on the field do not, and half the embers carry over — so the build grows across the campaign while the nights get harder.
+**A campaign of four nights (new in v11, the fourth night in v23):** one night is ten waves; a campaign is four nights in a row, each with its own objective and its own boss — Night 1 First Light (light all 5 rings, the Gloom Herald), Night 2 The Long Dark (banish 40 wisps, the Hollow King, gloom wisps join), Night 3 Dawn's Edge (gather 120 motes, the Night Itself, spark wisps join), Night 4 The First Dawn (banish 60 wisps, the Dawn Warden at 48 HP, mirage wisps join). Between nights the campaign map opens: spend Dawn Shards (earned from rings, objectives and bosses) on permanent upgrades — an extra heart, a lantern slot, or the Sun Lantern — and choose one Dawn Relic for the coming night (Twin Flames, Golden Motes, or Stout Heart). Draft upgrades carry across nights, lanterns on the field do not, and half the embers carry over — so the build grows across the campaign while the nights get harder.
 
 **Endless Night (new in v12):** a second way to play, picked on the title screen (key **5** or click). No dawn, no last wave — waves without end, a boss every tenth wave (the Herald at 10, the Hollow King at 20, the Night Itself from 30 on, each one tougher than the last), gloom wisps joining from wave 12 and sparks from wave 15, and the ten skies cycling again and again as the night refuses to end. The score is its own chase, with its own best score. How long can the last light hold?
 
 **Boss Rush (new in v13, polished in v20):** a third way to play, picked on the title screen (key **6** or click). No ordinary waves at all — one boss after another: the Gloom Herald, then the Hollow King, then the Night Itself, then the cycle repeats, each boss 8 HP tougher than the last. Between bosses you draft one upgrade card; the score is its own chase, with its own best score. A boss kill flashes **BOSS n DOWN!** across the field, the draft screen names the boss you just downed and the one coming next, the adds each boss spawns rotate one step every cycle so a repeated boss still brings a new fight, and downing the second boss unlocks **sun lanterns** for the rest of the rush. The title screen keeps the **records** of all three modes side by side. How many bosses can the last light down?
 
-**Storm Lanterns + Lantern Mastery (new in v21):** take the Storm Lantern draft card and you may plant a fourth kind of lantern — a violet storm rod that strikes lightning, chaining from wisp to wisp (55 embers, key **4** in place mode). The card joins the draft pool once the keeper reaches **Mastery level 2**. Every run that ends banks **Lantern Mastery** XP from its score and boss kills: six levels from Keeper to First Light, shown on the title screen beside the records and on the defeat screen as what the run earned, and each level past the first starts the next run with one extra ember. The screenshots now show the whole loop: boss fight, title, campaign map with the Dawn Shop, and the defeat screen with its restart.
+**Storm Lanterns + Lantern Mastery (new in v21):** take the Storm Lantern draft card and you may plant a fourth kind of lantern — a violet storm rod that strikes lightning, chaining from wisp to wisp (55 embers, key **4** in place mode). The card joins the draft pool once the keeper reaches **Mastery level 2**. Every run that ends banks **Lantern Mastery** XP from its score and boss kills: six levels from Keeper to First Light, shown on the title screen beside the records and on the defeat screen as what the run earned, and each level past the first starts the next run with one extra ember. The screenshots now show the whole loop: boss fight, title, campaign map with the Dawn Shop, and the win screen — all four nights held — with its mastery gain.
+
+**The First Dawn, boss enrage, elite wisps and real records (new in v23 — the final build):** the campaign ends in a fourth night, **The First Dawn** — banish 60 wisps and face the **Dawn Warden** (48 HP, spawns bulwarks) as **mirage wisps** (fast, worth +20) join the dark. In Endless Night, Boss Rush and that final night — the deep play — bosses **enrage** at a quarter of their health: 40% faster, calling their adds twice as often, ringed in pulsing red and announced in the HUD. One in ten wisps there is an **elite**, gold-ringed and worth triple score. The draft grows too: in deep play a fourth card rides below the row as a **DEEP OFFER** — Burning Flare (+1 flare damage) or Ember Ward (wisps near Ember drift slower) — while the three classic cards keep exactly the odds they always had. The title screen's **records** are real played scores now — the best campaign, endless and boss-rush runs the house autopilot actually played, with the mastery those runs banked — never a made-up number.
 
 ## How to play
 
@@ -51,13 +53,15 @@ LANTERNWARD — tower defense where the light itself moves every wave: an origin
   per wave).
 - **Boss wave 10:** the Gloom Herald — a slow, tough wisp (26 HP) that
   spawns drifters every few seconds and drops a shower of motes when it
-  falls. Nights 2 and 3 end in harder bosses: the Hollow King (32 HP,
-  spawns chasers) and the Night Itself (40 HP, spawns splitters).
+  falls. Nights 2, 3 and 4 end in harder bosses: the Hollow King (32 HP,
+  spawns chasers), the Night Itself (40 HP, spawns splitters) and the
+  Dawn Warden (48 HP, spawns bulwarks). In deep play a boss at a quarter
+  of its health **enrages** — 40% faster, adds twice as often.
 - **Sun lanterns (new in v11):** buy the Sun Lantern on the campaign map
   and you may plant a third kind of lantern — a broad golden lamp that
   fires a three-bolt spread for 60 embers. In place mode press **3** for
   sun (1 ember, 2 frost).
-- **Campaign map (new in v11):** hold a night and the map opens — three
+- **Campaign map (new in v11):** hold a night and the map opens — four
   nights on one road (held / next / locked), the dawn shop (Ember Heart
   4 shards, Lantern Rack 5, Sun Lantern 6), and a free relic for the
   coming night (keys 4 / 5 / 6 or click). Space enters the next night.
@@ -82,13 +86,16 @@ LANTERNWARD — tower defense where the light itself moves every wave: an origin
   Combo, Swift Wings, Rich Motes — plus five lantern cards: Lantern Slot,
   Long Beam, Rapid Wick, Heavy Wick and Frost Lantern. Click a card or press **1 / 2 / 3**.
   Upgrades stack across the 10 waves, so every run builds differently.
+  In Endless Night, Boss Rush and the final campaign night a fourth card
+  rides below the row as a **DEEP OFFER** — Burning Flare or Ember Ward —
+  picked with **4** or a click; the three classic cards keep their odds.
 - **P / Esc** pauses, **M** mutes, **R** restarts, **Space** starts.
 
 **Win:** survive all 10 waves and light all 5 beacon rings — dawn breaks.
 **Lose:** all 4 hearts gone. Every 3rd wave (3, 6, 9) is an Ember Storm:
 a dense rain of motes with a bonus timer.
-**Campaign win:** hold all three nights — First Light, the Long Dark and
-Dawn's Edge — and dawn breaks for good.
+**Campaign win:** hold all four nights — First Light, the Long Dark,
+Dawn's Edge and the First Dawn — and dawn breaks for good.
 **Endless Night:** there is no win — only waves held. The run ends when
 the hearts run out, and the score is the story.
 
@@ -102,7 +109,7 @@ node serve.ts
 No build step, no libraries, no network requests: vanilla JS + Canvas 2D
 with synthesised WebAudio sound, all art drawn procedurally.
 
-Deterministic scenes for screenshots: `/?shot=title|play|action|draft|end|boss|map|night2|endless&seed=N`.
+Deterministic scenes for screenshots: `/?shot=title|play|action|draft|end|boss|map|night2|endless|storm|bossrush|rushdraft|lost&seed=N`.
 
 ## Layout
 
@@ -113,12 +120,13 @@ Deterministic scenes for screenshots: `/?shot=title|play|action|draft|end|boss|m
 - `game/src/input.js` — keyboard + pointer state
 - `game/src/daylight.js` — the wandering light: one sky per wave, the
   Dawn Star's drift, the lit pool, sunlit motes (new in v5)
-- `game/src/campaign.js` — the campaign of three nights: night defs,
-  dawn shards, the meta shop, dawn relics (new in v11)
+- `game/src/campaign.js` — the campaign of four nights: night defs,
+  dawn shards, the meta shop, dawn relics (new in v11, fourth night v23)
 - `game/src/world.js` — entities, waves, collisions, scoring, Endless
-  Night mode (new in v12)
+  Night mode (new in v12), boss enrage + elite wisps (new in v23)
 - `game/src/lanterns.js` — placeable fighting lanterns (slots, bolts, range)
-- `game/src/draft.js` — the between-wave upgrade draft (12 upgrades, 3 cards)
+- `game/src/draft.js` — the between-wave upgrade draft (16 upgrades: 14 classic + 2 deep, 3 cards + DEEP OFFER)
+- `game/src/records.js` — the title screen's house records: real played best scores + banked mastery (new in v23)
 - `game/src/render.js` — canvas drawing: field, entities, HUD, screens
 - `game/src/shots.js` — deterministic scenes + autopilot, incl. Endless
   Night staging (new in v12)

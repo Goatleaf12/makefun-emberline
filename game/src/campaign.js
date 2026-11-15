@@ -1,4 +1,4 @@
-// campaign.js — three nights, one dawn: meta-progression between runs (shards, shop, relics).
+// campaign.js — four nights, one dawn: meta-progression between runs (shards, shop, relics).
 
 export const NIGHTS = [
   {
@@ -21,6 +21,13 @@ export const NIGHTS = [
     short: 'Gather the dawn',
     objective: { kind: 'motes', target: 120, label: 'Gather 120 motes' },
     boss: { name: 'THE NIGHT ITSELF', hp: 40, spawn: 'splitter' },
+  },
+  {
+    id: 4,
+    name: 'THE FIRST DAWN',
+    short: 'Hold the first dawn',
+    objective: { kind: 'banishes', target: 60, label: 'Banish 60 wisps' },
+    boss: { name: 'THE DAWN WARDEN', hp: 48, spawn: 'bulwark' },
   },
 ];
 
@@ -90,7 +97,7 @@ export function makeCampaign() {
 }
 
 export function nightDef(night) {
-  return NIGHTS[Math.max(1, Math.min(3, night)) - 1];
+  return NIGHTS[Math.max(1, Math.min(4, night)) - 1];
 }
 
 export function objectiveCount(world) {

@@ -99,6 +99,22 @@ export const UPGRADES = [
     max: 2,
     apply: (u) => { u.lanternDamage += 1; },
   },
+  {
+    id: 'flare-burn',
+    name: 'Burning Flare',
+    desc: 'Flare hits +1 harder',
+    max: 2,
+    deep: true,
+    apply: (u) => { u.flareDamage += 1; },
+  },
+  {
+    id: 'ember-ward',
+    name: 'Ember Ward',
+    desc: 'Wisps near Ember drift 15% slower',
+    max: 2,
+    deep: true,
+    apply: (u) => { u.ward += 1; },
+  },
 ];
 
 // The run's upgrade state: one object the world owns, the draft mutates.
@@ -118,19 +134,28 @@ export function makeUpgrades() {
     lanternRange: 0,
     lanternCooldown: 1,
     lanternDamage: 0,
+    flareDamage: 0,
+    ward: 0,
     frost: 0,
     storm: 0,
     taken: {},
   };
 }
 
-// Three distinct cards the run may still take. The Storm Lantern card joins the pool only at Mastery level 2.
-export function rollDraft(rng, upgrades, allowStorm = false) {
-  const pool = UPGRADES.filter((u) => (u.id !== 'storm-lantern' || allowStorm) && (upgrades.taken[u.id] || 0) < u.max);
+// Three distinct classic cards the run may still take. The Storm Lantern card joins the pool only at Mastery level 2.
+// Deep cards (flare-burn, ember-ward) NEVER compete for the three classic slots: in deep play
+// one rides along as a fourth DEEP OFFER, so the classic pool keeps exactly the odds it always
+// had — and the first three campaign nights roll exactly the pool they always rolled.
+export function rollDraft(rng, upgrades, allowStorm = false, allowDeep = false) {
+  const pool = UPGRADES.filter((u) => !u.deep && (u.id !== 'storm-lantern' || allowStorm) && (upgrades.taken[u.id] || 0) < u.max);
   const options = [];
   while (options.length < 3 && pool.length > 0) {
     const i = Math.floor(rng() * pool.length);
     options.push(pool.splice(i, 1)[0]);
+  }
+  if (allowDeep) {
+    const deep = UPGRADES.filter((u) => u.deep && (upgrades.taken[u.id] || 0) < u.max);
+    if (deep.length > 0) options.push(deep[Math.floor(rng() * deep.length)]);
   }
   return options;
 }
@@ -140,19 +165,22 @@ export function applyUpgrade(upgrades, upgrade) {
   upgrades.taken[upgrade.id] = (upgrades.taken[upgrade.id] || 0) + 1;
 }
 
-export function draftCardRects(w, h) {
+export function draftCardRects(w, h, n = 3) {
   const cw = 210;
   const ch = 150;
   const gap = 26;
   const total = cw * 3 + gap * 2;
   const x0 = (w - total) / 2;
   const y0 = h / 2 - 40;
-  return [0, 1, 2].map((i) => ({
+  const rects = [0, 1, 2].map((i) => ({
     x: x0 + i * (cw + gap),
     y: y0,
     w: cw,
     h: ch,
   }));
+  // A fourth option — the DEEP OFFER — rides below the row as a wide short banner.
+  if (n >= 4) rects.push({ x: (w - 480) / 2, y: y0 + ch + 24, w: 480, h: 64 });
+  return rects;
 }
 
 export function draftHit(rects, x, y) {

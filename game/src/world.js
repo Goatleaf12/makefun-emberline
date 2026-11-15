@@ -79,7 +79,7 @@ export function createWorld(seed, best = 0, difficulty = 'normal', campaign = nu
     moteTimer: 0,
     boss: null,
     shake: 0,
-    stats: { motes: 0, banished: 0, flares: 0, placed: 0, waves: 0, bosses: 0, stormHits: 0 },
+    stats: { motes: 0, banished: 0, flares: 0, placed: 0, waves: 0, bosses: 0, stormHits: 0, elites: 0, enrages: 0 },
     events: [],
     banner: null, // big centre text on a boss kill, e.g. 'BOSS 1 DOWN!'
   };
@@ -112,6 +112,17 @@ export function effMoteScore(world) {
 
 export function effMoteEnergy(world) {
   return TUNE.moteEnergy + world.upgrades.moteEnergy;
+}
+
+export function effFlareDamage(world) {
+  return TUNE.flareDamage + world.upgrades.flareDamage + (world.relic === 'twin-flames' ? 1 : 0);
+}
+
+// Deep content — boss enrage, elite wisps, the new draft cards — lives only in Endless,
+// Boss Rush and the final night. Campaign nights 1-3 never see it, so their balance and
+// their seeded replays stay exactly as they were.
+export function deepOn(world) {
+  return world.mode !== 'campaign' || world.night >= 4;
 }
 
 function syncLanterns(world) {
@@ -191,7 +202,14 @@ function spawnWisp(world, kind) {
     age: 0,
     spawnTimer: 0,
     dead: false,
+    elite: false,
+    enraged: false,
   };
+  // One in ten wisps in deep play is an ELITE: same body, same speed, but gold-ringed and
+  // worth triple score. The roll draws only in deep play, so nights 1-3 keep their exact RNG stream.
+  // (Deriving elite-ness from the heading was tried and REVERTED: it biased elite movement
+  // east-northeast, halved the endless median to 8.5, and cost a rush boss-1 kill.)
+  if (kind !== 'boss' && deepOn(world) && world.rng() < 0.1) wisp.elite = true;
   world.wisps.push(wisp);
   if (kind === 'boss') {
     world.boss = wisp;
@@ -301,8 +319,9 @@ function banishWisp(world, wisp, source) {
   if (wisp.dead) return;
   wisp.dead = true;
   world.stats.banished++;
+  if (wisp.elite) world.stats.elites++;
   const kind = WISP_KINDS[wisp.kind];
-  const gain = (TUNE.wispScore + kind.bonus) * comboMult(world);
+  const gain = (TUNE.wispScore + kind.bonus) * comboMult(world) * (wisp.elite ? 3 : 1);
   world.score += gain;
   world.embers += 1;
   floater(world, wisp.x, wisp.y, `+${gain}`, kind.color);
@@ -335,6 +354,14 @@ export function hurtWisp(world, wisp, damage, source) {
   if (wisp.dead) return;
   wisp.hp -= damage;
   burst(world, wisp.x, wisp.y, '#fef3c7', 3, 90);
+  // ENRAGE: a boss at a quarter of its health fights back — 40% faster, adds twice as often.
+  // Deep play only, so the campaign's first three nights never feel it.
+  if (wisp.kind === 'boss' && !wisp.enraged && wisp.hp > 0 && wisp.hp <= wisp.maxHp * 0.25 && deepOn(world)) {
+    wisp.enraged = true;
+    world.stats.enrages++;
+    floater(world, wisp.x, wisp.y - wisp.r - 20, 'ENRAGED!', '#f43f5e');
+    world.events.push('enrage');
+  }
   if (wisp.hp <= 0) banishWisp(world, wisp, source);
 }
 
@@ -352,7 +379,7 @@ function fireFlare(world) {
     const dx = wisp.x - e.x;
     const dy = wisp.y - e.y;
     if (dx * dx + dy * dy <= radius * radius) {
-      hurtWisp(world, wisp, TUNE.flareDamage + (world.relic === 'twin-flames' ? 1 : 0), 'flare');
+      hurtWisp(world, wisp, effFlareDamage(world), 'flare');
     }
   }
   return true;
@@ -372,7 +399,7 @@ function applyPickup(world, kind) {
 
 export function openDraft(world) {
   world.phase = 'draft';
-  world.draftOptions = rollDraft(world.rng, world.upgrades, !!world.stormUnlocked);
+  world.draftOptions = rollDraft(world.rng, world.upgrades, !!world.stormUnlocked, deepOn(world));
   world.events.push('draft');
 }
 
@@ -453,7 +480,14 @@ function stepWisps(world, dt) {
       if (dx * dx + dy * dy <= a.r * a.r) chill = frostS;
     }
     w.chilled = chill > 0;
-    const speed = spec.speed * w.speed * slow * (1 - chill);
+    // Ember Ward: wisps close to Ember drift slower (15% per take, max 2 takes).
+    let ward = 1;
+    if ((world.upgrades.ward || 0) > 0) {
+      const dx = w.x - e.x;
+      const dy = w.y - e.y;
+      if (dx * dx + dy * dy <= 140 * 140) ward = 1 - 0.15 * Math.min(2, world.upgrades.ward);
+    }
+    const speed = spec.speed * w.speed * slow * (1 - chill) * ward * (w.enraged ? 1.4 : 1);
     if (w.kind === 'chaser' || w.kind === 'boss') {
       const dx = e.x - w.x;
       const dy = e.y - w.y;
@@ -482,7 +516,8 @@ function stepWisps(world, dt) {
     if (w.kind === 'boss') {
       w.spawnTimer -= dt;
       if (w.spawnTimer <= 0) {
-        w.spawnTimer = world.mode === 'bossrush' ? 6 : 4;
+        // An enraged boss calls its adds twice as often.
+        w.spawnTimer = w.enraged ? (world.mode === 'bossrush' ? 3 : 2) : world.mode === 'bossrush' ? 6 : 4;
         const child = spawnWisp(world, world.bossSpawn || 'drifter');
         child.x = w.x;
         child.y = w.y + 30;
@@ -684,7 +719,7 @@ export function step(world, dt, steer, dashHeld, actions) {
     if (world.mode !== 'campaign' || world.wave < 10) {
       openDraft(world);
     } else {
-      world.phase = world.night >= 3 ? 'won' : 'nightwon';
+      world.phase = world.night >= 4 ? 'won' : 'nightwon';
       world.events.push('win');
     }
   }

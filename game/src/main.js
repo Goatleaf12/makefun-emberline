@@ -124,7 +124,7 @@ function syncPhase() {
     screen = 'won';
     saveBest(Math.max(loadBest(world.mode), world.score), world.mode);
     bankMastery(true);
-    setStatus('Dawn breaks — all three nights held!');
+    setStatus('Dawn breaks — all four nights held!');
   } else if (world.phase === 'lost' && screen !== 'lost') {
     screen = 'lost';
     saveBest(Math.max(loadBest(world.mode), world.score), world.mode);
@@ -238,7 +238,7 @@ function handleActions(actions) {
         screen = 'play';
         setStatus(world.mode === 'bossrush' ? 'Boss Rush again — boss 1. The rush never ends.' : world.mode === 'endless' ? 'Endless Night again — wave 1. The night has no end.' : `Night ${world.night} again — the night deepens. Hold the light.`);
       } else if (screen === 'draft') {
-        const rects = draftCardRects(FIELD.w, FIELD.h);
+        const rects = draftCardRects(FIELD.w, FIELD.h, world.draftOptions.length);
         const idx = draftHit(rects, input.pointer.x, input.pointer.y);
         if (idx >= 0 && draftPick(world, idx)) {
           screen = 'play';
@@ -356,6 +356,7 @@ if (shotKind) {
   fitCanvas();
   draw(ctx, world, screen, view, campaign);
   draw(ctx, world, screen, view, campaign);
+  window.__shotWorld = world;
   window.__shotReady = true;
 } else {
   // --- live mode -----------------------------------------------------------

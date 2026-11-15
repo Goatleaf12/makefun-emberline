@@ -258,6 +258,14 @@ function drawWisps(ctx, world) {
       ctx.stroke();
       ctx.restore();
       ctx.setLineDash([]);
+      if (w.enraged) {
+        // An enraged boss wears a pulsing red ring: faster, and calling adds twice as often.
+        ctx.strokeStyle = `rgba(244, 63, 94, ${0.5 + 0.3 * Math.sin(world.time * 6)})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(w.x, w.y, w.r + 22, 0, Math.PI * 2);
+        ctx.stroke();
+      }
     }
     glow(ctx, w.x, w.y, w.r * 2.6, rgba(w.color, 0.55));
     ctx.fillStyle = w.color;
@@ -382,6 +390,14 @@ function drawWisps(ctx, world) {
       ctx.arc(w.x, w.y, w.r + 6, 0, Math.PI * 2);
       ctx.stroke();
     }
+    if (w.elite) {
+      // Elite wisps wear a gold ring: same body, triple score.
+      ctx.strokeStyle = '#ffd166';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(w.x, w.y, w.r + 5, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     if (w.kind === 'boss') {
       ctx.fillStyle = '#f43f5e';
       for (let i = -1; i <= 1; i++) {
@@ -393,11 +409,16 @@ function drawWisps(ctx, world) {
         ctx.fill();
       }
       const bw = 64;
+      // A boss high on the field wears its label UNDER it: above, the name and the mini
+      // bar would land on the HUD strip (and on each other at a glance).
+      const below = w.y - w.r - 44 < 84;
+      const barY = below ? w.y + w.r + 26 : w.y - w.r - 26;
+      const nameY = below ? w.y + w.r + 14 : w.y - w.r - 38;
       ctx.fillStyle = 'rgba(7, 11, 29, 0.8)';
-      ctx.fillRect(w.x - bw / 2, w.y - w.r - 26, bw, 7);
+      ctx.fillRect(w.x - bw / 2, barY, bw, 7);
       ctx.fillStyle = '#f43f5e';
-      ctx.fillRect(w.x - bw / 2, w.y - w.r - 26, bw * Math.max(0, w.hp / w.maxHp), 7);
-      text(ctx, (world.bossName || 'GLOOM HERALD').toUpperCase(), w.x, w.y - w.r - 38, 12, '#fb7185', 'center');
+      ctx.fillRect(w.x - bw / 2, barY, bw * Math.max(0, w.hp / w.maxHp), 7);
+      text(ctx, (world.bossName || 'GLOOM HERALD').toUpperCase(), w.x, nameY, 12, '#fb7185', 'center');
     } else if (w.maxHp > 1) {
       for (let i = 0; i < w.maxHp; i++) {
         ctx.fillStyle = i < w.hp ? w.color : 'rgba(255,255,255,0.25)';
@@ -741,7 +762,7 @@ function drawHud(ctx, world) {
       ? `BOSS RUSH — BOSS ${world.wave}${diffTag}`
       : world.mode === 'endless'
         ? `ENDLESS NIGHT — WAVE ${world.wave}${diffTag}`
-        : `WAVE ${world.wave}/10 — ${lightState(world).phase.name} · NIGHT ${world.night}/3${diffTag}`,
+        : `WAVE ${world.wave}/10 — ${lightState(world).phase.name} · NIGHT ${world.night}/4${diffTag}`,
     FIELD.w / 2,
     18,
     17,
@@ -761,10 +782,13 @@ function drawHud(ctx, world) {
   ctx.fillRect(FIELD.w / 2 - 50, 46, 100 * (progress / 10), 4);
   ctx.fillStyle = 'rgba(7, 11, 29, 0.5)';
   ctx.fillRect(0, 50, FIELD.w, 18);
+  // While the boss intro splash runs (age < 2.4), the splash itself names the boss:
+  // the HUD's own boss line and bar stay out of its way.
+  const intro = world.boss && world.boss.age < 2.4;
   if (world.stormTimer > 0) {
     text(ctx, '⚡ EMBER STORM — MOTES RAIN!', FIELD.w / 2, 58, 14, '#ff8c42', 'center');
-  } else if (world.boss) {
-    text(ctx, `${(world.bossName || 'THE GLOOM HERALD').toUpperCase()} IS HERE`, FIELD.w / 2, 58, 14, '#fb7185', 'center');
+  } else if (world.boss && !intro) {
+    text(ctx, `${(world.bossName || 'THE GLOOM HERALD').toUpperCase()} IS HERE${world.boss.enraged ? ' — ENRAGED' : ''}`, FIELD.w / 2, 58, 14, '#fb7185', 'center');
   } else {
     if (world.mode === 'endless' || world.mode === 'bossrush') {
       text(
@@ -791,7 +815,7 @@ function drawHud(ctx, world) {
       );
     }
   }
-  if (world.boss) {
+  if (world.boss && !intro) {
     const bw = 260;
     ctx.fillStyle = 'rgba(7, 11, 29, 0.8)';
     ctx.fillRect(FIELD.w / 2 - bw / 2, 66, bw, 8);
@@ -896,19 +920,19 @@ function drawTitle(ctx, world, view) {
   text(ctx, '— the light itself moves every wave —', FIELD.w / 2, 152, 20, PALETTE.gold, 'center');
   text(ctx, 'You are Ember, keeper of the last light. Night sends its wisps.', FIELD.w / 2, 198, 17, PALETTE.cream, 'center');
   text(ctx, 'Gather motes. Spend embers to plant lanterns — they fight for you.', FIELD.w / 2, 224, 17, PALETTE.cream, 'center');
-  text(ctx, 'Light all 5 beacon rings and survive 10 waves until dawn.', FIELD.w / 2, 250, 17, PALETTE.cream, 'center');
+  text(ctx, 'Four nights, four bosses — hold the light until the first dawn.', FIELD.w / 2, 250, 17, PALETTE.cream, 'center');
   const lines = [
     'WASD / ARROWS or MOUSE — steer Ember',
     'SHIFT — dash      F — flare (banishes wisps)',
     'B then CLICK — plant a lantern (45 embers)',
     'Each wave the dawn star moves — lanterns in its light reach farther',
     'P — pause      M — mute      R — restart',
-    'Between waves: pick 1 of 3 upgrades — lanterns included',
+    'Between waves: pick 1 of 3 upgrades — lanterns included · deep play adds a 4th offer',
   ];
   lines.forEach((line, i) => text(ctx, line, FIELD.w / 2, 286 + i * 21, 15, PALETTE.dim, 'center'));
   const selMode = (view && view.mode) || 'campaign';
   const modes = [
-    { id: 'campaign', key: '4', name: 'CAMPAIGN', tag: 'three nights, one dawn' },
+    { id: 'campaign', key: '4', name: 'CAMPAIGN', tag: 'four nights, one dawn' },
     { id: 'endless', key: '5', name: 'ENDLESS NIGHT', tag: 'waves without end' },
     { id: 'bossrush', key: '6', name: 'BOSS RUSH', tag: 'boss after boss, no waves' },
   ];
@@ -1088,7 +1112,7 @@ function drawDraft(ctx, world) {
     PALETTE.gold,
     'center',
   );
-  text(ctx, 'Choose one upgrade — click it or press 1 / 2 / 3', FIELD.w / 2, 132, 16, PALETTE.cream, 'center');
+  text(ctx, world.draftOptions.length > 3 ? 'Choose one upgrade — click it or press 1 / 2 / 3 / 4' : 'Choose one upgrade — click it or press 1 / 2 / 3', FIELD.w / 2, 132, 16, PALETTE.cream, 'center');
   if (world.wave < 10) {
     text(
       ctx,
@@ -1102,9 +1126,23 @@ function drawDraft(ctx, world) {
       'center',
     );
   }
-  const rects = draftCardRects(FIELD.w, FIELD.h);
+  const rects = draftCardRects(FIELD.w, FIELD.h, world.draftOptions.length);
   world.draftOptions.forEach((upgrade, i) => {
     const r = rects[i];
+    if (upgrade.deep) {
+      // The DEEP OFFER rides below the row as a wide short banner, not a fourth tall card.
+      ctx.fillStyle = 'rgba(19, 26, 58, 0.95)';
+      ctx.fillRect(r.x, r.y, r.w, r.h);
+      ctx.strokeStyle = '#e879f9';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(r.x, r.y, r.w, r.h);
+      text(ctx, '✦ DEEP OFFER', r.x + 16, r.y + 26, 12, '#e879f9', 'left');
+      text(ctx, `${i + 1}`, r.x + r.w - 16, r.y + 26, 14, PALETTE.dim, 'right');
+      text(ctx, `${upgrade.name} — ${upgrade.desc}`, r.x + r.w / 2, r.y + 28, 15, PALETTE.cream, 'center');
+      const taken = world.upgrades.taken[upgrade.id] || 0;
+      text(ctx, taken > 0 ? `Taken x${taken} — max ${upgrade.max}` : `Max ${upgrade.max}`, r.x + r.w / 2, r.y + 50, 12, PALETTE.gold, 'center');
+      return;
+    }
     ctx.fillStyle = 'rgba(19, 26, 58, 0.95)';
     ctx.fillRect(r.x, r.y, r.w, r.h);
     const isLanternCard =
@@ -1167,11 +1205,11 @@ function drawMap(ctx, world, campaign) {
   ctx.strokeStyle = 'rgba(255, 209, 102, 0.4)';
   ctx.lineWidth = 3;
   ctx.beginPath();
-  ctx.moveTo(240, 160);
-  ctx.lineTo(720, 160);
+  ctx.moveTo(180, 160);
+  ctx.lineTo(780, 160);
   ctx.stroke();
   NIGHTS.forEach((night, i) => {
-    const x = 240 + i * 240;
+    const x = 180 + i * 200;
     const y = 160;
     const held = night.id < camp.night;
     const next = night.id === camp.night;
@@ -1258,11 +1296,11 @@ function drawEnd(ctx, world, won, campaign, view) {
     ctx.fillStyle = 'rgba(7, 11, 29, 0.78)';
     ctx.fillRect(0, 0, FIELD.w, FIELD.h);
   }
-  text(ctx, won ? 'DAWN BREAKS — ALL THREE NIGHTS HELD!' : endless ? 'THE NIGHT CLAIMS YOU' : 'THE LIGHT FADES', FIELD.w / 2, 122, won ? 38 : 44, won ? '#ffd166' : '#fb7185', 'center');
+  text(ctx, won ? 'DAWN BREAKS — ALL FOUR NIGHTS HELD!' : endless ? 'THE NIGHT CLAIMS YOU' : 'THE LIGHT FADES', FIELD.w / 2, 122, won ? 38 : 44, won ? '#ffd166' : '#fb7185', 'center');
   text(
     ctx,
     won
-      ? 'All 5 rings lit, three nights held. The last light kept the dawn.'
+      ? 'All 5 rings lit, four nights held. The last light kept the dawn.'
       : endless
         ? `Endless Night — you held ${world.wave - 1} wave${world.wave - 1 === 1 ? '' : 's'} before the dark closed in.`
         : rush
@@ -1301,7 +1339,7 @@ function drawEnd(ctx, world, won, campaign, view) {
     : [
         ['SCORE', world.score.toLocaleString('en-US')],
         ['BEST', Math.max(world.best, world.score).toLocaleString('en-US')],
-        ['NIGHT', `${world.night} / 3`],
+        ['NIGHT', `${world.night} / 4`],
         ['WAVES CLEARED', `${won ? 10 : world.wave - 1} / 10`],
         ['BEACON RINGS', `${world.ringsLit} / 5`],
         ['MOTES GATHERED', `${world.stats.motes}`],

@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>EMBERLINE — Keeper of the Last Light</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #05081a; height: 100%; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: sans-serif; }
+  #game { display: block; background: #0b1026; border-radius: 8px; box-shadow: 0 0 60px rgba(255, 179, 71, 0.15); cursor: crosshair; }
+  #status { color: #c9c2a8; font-size: 13px; margin-top: 10px; text-align: center; max-width: 960px; }
+</style>
+</head>
+<body>
+<canvas id="game" width="960" height="600" tabindex="0"></canvas>
+<p id="status" role="status">EMBERLINE — loading…</p>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

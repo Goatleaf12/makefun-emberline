@@ -43,10 +43,10 @@ export function skyForWave(wave) {
 
 // Where the Dawn Star is right now, and how far its light reaches.
 // It drifts on a slow loop around its anchor while the wave lasts.
-// In Endless Night the ten skies cycle again and again — the night
-// never reaches dawn, so the light keeps wandering instead.
+// In Endless Night and Boss Rush the ten skies cycle again and again —
+// the night never reaches dawn, so the light keeps wandering instead.
 export function lightState(world) {
-  const wave = world.mode === 'endless' ? ((world.wave - 1) % 10) + 1 : world.wave;
+  const wave = world.mode === 'campaign' ? world.wave : ((world.wave - 1) % 10) + 1;
   const phase = phaseForWave(wave);
   const t = world.waveTime;
   const x = phase.anchor.x + Math.sin(t * 0.1 + wave * 1.7) * 46;

@@ -71,7 +71,7 @@ function autopilot(world) {
   }
   if (
     world.lanterns.list.length < world.lanterns.slots &&
-    world.wave >= 2
+    (world.wave >= 2 || world.mode === 'bossrush')
   ) {
     const px = Math.max(60, Math.min(900, e.x + 90));
     const py = Math.max(60, Math.min(540, e.y - 70));
@@ -233,6 +233,37 @@ export function stageShot(kind, seed, difficulty = 'normal') {
     }
     const run = playCampaign(seed, 'gentle');
     return { world: run.world, screen: run.screen, view, campaign: run.campaign };
+  }
+  if (kind === 'rushdraft') {
+    // Boss Rush: beat boss 1, then freeze on the inter-boss draft — the
+    // "BOSS 1 DOWN" header, the next-boss preview, and the three cards.
+    for (let s = seed; s < seed + 24; s++) {
+      const w = createWorld(s, 0, 'normal', null, 'bossrush');
+      playSteps(w, 60 * 60 * 12, { stopAtDraft: true });
+      if (w.phase === 'draft' && w.stats.bosses >= 1) return { world: w, screen: 'draft', view, campaign: w.campaign };
+    }
+    const w = createWorld(seed, 0, 'normal', null, 'bossrush');
+    playSteps(w, 60 * 60 * 12, { stopAtDraft: true });
+    return { world: w, screen: w.phase === 'draft' ? 'draft' : 'play', view, campaign: w.campaign };
+  }
+  if (kind === 'bossrush') {
+    // Boss Rush: beat boss 1, take the inter-boss draft, then freeze on
+    // boss 2 just AFTER its intro splash ends (age 3.5 > 2.4), so the
+    // letterbox bars are gone and the full HUD — mode line, score,
+    // hearts, boss health bar, flare, lanterns — reads clean while the
+    // boss is still mid-fight.
+    for (let s = seed; s < seed + 24; s++) {
+      const w = createWorld(s, 0, 'normal', null, 'bossrush');
+      let guard = 0;
+      while (guard++ < 60 * 60 * 14 && w.phase === 'play') {
+        playSteps(w, 60);
+        if (w.wave >= 2 && w.boss && w.boss.age >= 3.5) break;
+      }
+      if (w.phase === 'play' && w.wave >= 2 && w.boss) return { world: w, screen: 'play', view, campaign: w.campaign };
+    }
+    const w = createWorld(seed, 0, 'normal', null, 'bossrush');
+    playSteps(w, 60 * 60);
+    return { world: w, screen: 'play', view, campaign: w.campaign };
   }
   if (kind === 'boss') {
     // Play until the Gloom Herald appears on wave 10, then hold about a

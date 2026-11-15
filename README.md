@@ -10,6 +10,8 @@ LANTERNWARD — tower defense where the light itself moves every wave: an origin
 
 **Endless Night (new in v12):** a second way to play, picked on the title screen (key **5** or click). No dawn, no last wave — waves without end, a boss every tenth wave (the Herald at 10, the Hollow King at 20, the Night Itself from 30 on, each one tougher than the last), gloom wisps joining from wave 12 and sparks from wave 15, and the ten skies cycling again and again as the night refuses to end. The score is its own chase, with its own best score. How long can the last light hold?
 
+**Boss Rush (new in v13, polished in v20):** a third way to play, picked on the title screen (key **6** or click). No ordinary waves at all — one boss after another: the Gloom Herald, then the Hollow King, then the Night Itself, then the cycle repeats, each boss 8 HP tougher than the last. Between bosses you draft one upgrade card; the score is its own chase, with its own best score. A boss kill flashes **BOSS n DOWN!** across the field, the draft screen names the boss you just downed and the one coming next, the adds each boss spawns rotate one step every cycle so a repeated boss still brings a new fight, and downing the second boss unlocks **sun lanterns** for the rest of the rush. The title screen keeps the **records** of all three modes side by side. How many bosses can the last light down?
+
 ## How to play
 
 - **Steer** with WASD / arrow keys, or hold the mouse and Ember follows

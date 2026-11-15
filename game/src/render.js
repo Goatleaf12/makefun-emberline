@@ -13,6 +13,7 @@ import { LANTERN_COST, SUN_COST, frostRadius } from './lanterns.js';
 import { drawSceneryBack, drawSceneryFront, drawMiniLantern } from './scenery.js';
 import { lightState, inLight, skyForWave } from './daylight.js';
 import { NIGHTS, META_SHOP, RELICS, nightDef, objectiveCount, metaLine, relicDef } from './campaign.js';
+import { rushBossAt } from './world.js';
 
 // Fixed stars and nebulae: one seeded layout, the same in every run.
 const STAR_RNG = makeRng(20261116);
@@ -738,9 +739,11 @@ function drawHud(ctx, world) {
       : '';
   text(
     ctx,
-    world.mode === 'endless'
-      ? `ENDLESS NIGHT — WAVE ${world.wave}${diffTag}`
-      : `WAVE ${world.wave}/10 — ${lightState(world).phase.name} · NIGHT ${world.night}/3${diffTag}`,
+    world.mode === 'bossrush'
+      ? `BOSS RUSH — BOSS ${world.wave}${diffTag}`
+      : world.mode === 'endless'
+        ? `ENDLESS NIGHT — WAVE ${world.wave}${diffTag}`
+        : `WAVE ${world.wave}/10 — ${lightState(world).phase.name} · NIGHT ${world.night}/3${diffTag}`,
     FIELD.w / 2,
     18,
     17,
@@ -753,12 +756,12 @@ function drawHud(ctx, world) {
     ctx.arc(FIELD.w / 2 - 50 + i * 25, 36, 5, 0, Math.PI * 2);
     ctx.fill();
   }
-  // Dawn progress: how much of the night is behind the keeper. In
-  // Endless Night the bar counts to the next boss wave instead.
+  // Dawn progress: how much of the night is behind the keeper. Outside
+  // the campaign the bar counts within a ten-wave cycle instead.
   ctx.fillStyle = 'rgba(255,255,255,0.18)';
   ctx.fillRect(FIELD.w / 2 - 50, 46, 100, 4);
   ctx.fillStyle = '#ffd166';
-  const progress = world.mode === 'endless' ? ((world.wave - 1) % 10) + 1 : world.wave;
+  const progress = world.mode === 'campaign' ? world.wave : ((world.wave - 1) % 10) + 1;
   ctx.fillRect(FIELD.w / 2 - 50, 46, 100 * (progress / 10), 4);
   // A dark strip behind the y=58 line, so field sprites never muddy it:
   // the storm warning, the boss call, and the objective all live there.
@@ -772,10 +775,10 @@ function drawHud(ctx, world) {
     // This night's objective, with its live count — and the relic the
     // keeper chose on the campaign map, when there is one. Endless Night
     // has no objective: only the waves, and the best score to beat.
-    if (world.mode === 'endless') {
+    if (world.mode === 'endless' || world.mode === 'bossrush') {
       text(
         ctx,
-        `ENDLESS — NO DAWN, ONLY WAVES · BEST ${Math.max(world.best, world.score).toLocaleString('en-US')}`,
+        `${world.mode === 'endless' ? 'ENDLESS — NO DAWN, ONLY WAVES' : 'BOSS RUSH — NO WAVES, ONLY BOSSES'} · BEST ${Math.max(world.best, world.score).toLocaleString('en-US')}`,
         FIELD.w / 2,
         58,
         13,
@@ -855,18 +858,20 @@ function drawHud(ctx, world) {
   }
 }
 
-// Mode buttons on the title screen: the campaign, or Endless Night.
-// Keys 4 / 5 or click. The caller keeps the choice in view.mode.
+// Mode buttons on the title screen: the campaign, Endless Night, or
+// Boss Rush. Keys 4 / 5 / 6 or click. The caller keeps the choice in
+// view.mode.
 export function modeRects(w, h) {
-  const bw = 300;
+  const bw = 200;
   const bh = 36;
   const gap = 18;
-  const total = bw * 2 + gap;
+  const total = bw * 3 + gap * 2;
   const x0 = (w - total) / 2;
   const y0 = 400;
   return [
     { id: 'campaign', key: '4', x: x0, y: y0, w: bw, h: bh },
     { id: 'endless', key: '5', x: x0 + bw + gap, y: y0, w: bw, h: bh },
+    { id: 'bossrush', key: '6', x: x0 + (bw + gap) * 2, y: y0, w: bw, h: bh },
   ];
 }
 
@@ -916,13 +921,14 @@ function drawTitle(ctx, world, view) {
     'Between waves: pick 1 of 3 upgrades — lanterns included',
   ];
   lines.forEach((line, i) => text(ctx, line, FIELD.w / 2, 286 + i * 21, 15, PALETTE.dim, 'center'));
-  if (world.best > 0) text(ctx, `BEST SCORE ${world.best.toLocaleString('en-US')}`, FIELD.w / 2, 452, 14, PALETTE.gold, 'center');
-  // Mode row: two ways to play — the campaign of three nights, or waves
-  // without end. The run's second decision, before the first mote.
+  // Mode row: three ways to play — the campaign of three nights, waves
+  // without end, or boss after boss. The run's second decision, before
+  // the first mote.
   const selMode = (view && view.mode) || 'campaign';
   const modes = [
     { id: 'campaign', key: '4', name: 'CAMPAIGN', tag: 'three nights, one dawn' },
     { id: 'endless', key: '5', name: 'ENDLESS NIGHT', tag: 'waves without end' },
+    { id: 'bossrush', key: '6', name: 'BOSS RUSH', tag: 'boss after boss, no waves' },
   ];
   for (const rect of modeRects(FIELD.w, FIELD.h)) {
     const m = modes.find((x) => x.id === rect.id);
@@ -952,6 +958,19 @@ function drawTitle(ctx, world, view) {
   ctx.globalAlpha = pulse;
   text(ctx, 'PRESS SPACE OR CLICK TO BEGIN', FIELD.w / 2, 530, 20, PALETTE.cream, 'center');
   ctx.globalAlpha = 1;
+  // Records: every mode keeps its own best score, shown here together —
+  // the title is where the three ways to play are compared.
+  const bests = (view && view.bests) || { campaign: 0, endless: 0, bossrush: 0 };
+  const fmtBest = (v) => (v > 0 ? v.toLocaleString('en-US') : '—');
+  text(
+    ctx,
+    `RECORDS — CAMPAIGN ${fmtBest(bests.campaign)} · ENDLESS ${fmtBest(bests.endless)} · BOSS RUSH ${fmtBest(bests.bossrush)}`,
+    FIELD.w / 2,
+    560,
+    13,
+    PALETTE.dim,
+    'center',
+  );
 }
 
 // One small glyph per upgrade, so the draft reads at thumbnail size.
@@ -1068,12 +1087,25 @@ function drawCardIcon(ctx, id, x, y) {
 function drawDraft(ctx, world) {
   ctx.fillStyle = 'rgba(7, 11, 29, 0.78)';
   ctx.fillRect(0, 0, FIELD.w, FIELD.h);
-  text(ctx, `WAVE ${world.wave} CLEARED — ${lightState(world).phase.name}`, FIELD.w / 2, 96, 30, PALETTE.gold, 'center');
+  // Boss Rush drafts are rewards, not breathers: the header names the
+  // boss just downed and the one coming next.
+  const rush = world.mode === 'bossrush';
+  text(
+    ctx,
+    rush ? `BOSS ${world.stats.bosses} DOWN — ${rushBossAt(world.wave).name}` : `WAVE ${world.wave} CLEARED — ${lightState(world).phase.name}`,
+    FIELD.w / 2,
+    96,
+    30,
+    PALETTE.gold,
+    'center',
+  );
   text(ctx, 'Choose one upgrade — click it or press 1 / 2 / 3', FIELD.w / 2, 132, 16, PALETTE.cream, 'center');
   if (world.wave < 10) {
     text(
       ctx,
-      `Next: WAVE ${world.wave + 1} — ${skyForWave(world.wave + 1).name} · the dawn star moves`,
+      rush
+        ? `Next: BOSS ${world.wave + 1} — ${rushBossAt(world.wave + 1).name} · it spawns ${(rushBossAt(world.wave + 1).spawn + 's').toUpperCase()}`
+        : `Next: WAVE ${world.wave + 1} — ${skyForWave(world.wave + 1).name} · the dawn star moves`,
       FIELD.w / 2,
       160,
       14,
@@ -1222,6 +1254,7 @@ function drawMap(ctx, world, campaign) {
 
 function drawEnd(ctx, world, won, campaign) {
   const endless = world.mode === 'endless';
+  const rush = world.mode === 'bossrush';
   if (won) {
     // Dawn breaks: warm light rises from the horizon, and all five
     // beacon rings stand lit across it.
@@ -1251,7 +1284,9 @@ function drawEnd(ctx, world, won, campaign) {
       ? 'All 5 rings lit, three nights held. The last light kept the dawn.'
       : endless
         ? `Endless Night — you held ${world.wave - 1} wave${world.wave - 1 === 1 ? '' : 's'} before the dark closed in.`
-        : `The wisps took the light on night ${world.night}, wave ${world.wave}.`,
+        : rush
+          ? `Boss Rush — you downed ${world.stats.bosses} boss${world.stats.bosses === 1 ? '' : 'es'} before the dark closed in.`
+          : `The wisps took the light on night ${world.night}, wave ${world.wave}.`,
     FIELD.w / 2,
     164,
     17,
@@ -1259,8 +1294,20 @@ function drawEnd(ctx, world, won, campaign) {
     'center',
   );
   const camp = campaign || world.campaign;
-  const rows = endless
+  const rows = rush
     ? [
+        ['SCORE', world.score.toLocaleString('en-US')],
+        ['BEST', Math.max(world.best, world.score).toLocaleString('en-US')],
+        ['BOSSES DOWN', `${world.stats.bosses}`],
+        ['BOSS REACHED', `${world.wave}`],
+        ['BEACON RINGS', `${world.ringsLit} / 5`],
+        ['MOTES GATHERED', `${world.stats.motes}`],
+        ['WISPS BANISHED', `${world.stats.banished}`],
+        ['LANTERNS PLANTED', `${world.stats.placed}`],
+        ['BEST COMBO', `x${world.comboBest}`],
+      ]
+    : endless
+      ? [
         ['SCORE', world.score.toLocaleString('en-US')],
         ['BEST', Math.max(world.best, world.score).toLocaleString('en-US')],
         ['WAVES HELD', `${world.wave - 1}`],
@@ -1290,7 +1337,7 @@ function drawEnd(ctx, world, won, campaign) {
   });
   const pulse = 0.75 + 0.25 * Math.sin(world.time * 3);
   ctx.globalAlpha = pulse;
-  text(ctx, won ? 'A NEW CAMPAIGN — PRESS SPACE' : endless ? 'ENDLESS AGAIN — PRESS SPACE' : 'TRY THIS NIGHT AGAIN — PRESS SPACE', FIELD.w / 2, 500, 20, PALETTE.cream, 'center');
+  text(ctx, won ? 'A NEW CAMPAIGN — PRESS SPACE' : rush ? 'RUSH AGAIN — PRESS SPACE' : endless ? 'ENDLESS AGAIN — PRESS SPACE' : 'TRY THIS NIGHT AGAIN — PRESS SPACE', FIELD.w / 2, 500, 20, PALETTE.cream, 'center');
   ctx.globalAlpha = 1;
 }
 
@@ -1329,14 +1376,14 @@ export function draw(ctx, world, screen, view, campaign) {
       text(ctx, (world.bossName || 'THE GLOOM HERALD').toUpperCase(), FIELD.w / 2, 38, 34, '#fb7185', 'center');
       text(
         ctx,
-        `WAVE ${world.wave} — ${light.phase.name} · ${world.boss ? world.boss.maxHp : 26} HP · IT SPAWNS ${((world.bossSpawn || 'drifter') + 's').toUpperCase()}`,
+        `${world.mode === 'bossrush' ? 'BOSS ' + world.wave : 'WAVE ' + world.wave + ' — ' + light.phase.name} · ${world.boss ? world.boss.maxHp : 26} HP · IT SPAWNS ${((world.bossSpawn || 'drifter') + 's').toUpperCase()}`,
         FIELD.w / 2,
         66,
         13,
         PALETTE.cream,
         'center',
       );
-      text(ctx, world.mode === 'endless' ? 'BANISH IT — THE NIGHT HAS NO END' : 'BANISH IT BEFORE DAWN', FIELD.w / 2, FIELD.h - 44, 16, PALETTE.gold, 'center');
+      text(ctx, world.mode === 'bossrush' ? 'BANISH IT — THE NEXT ONE WAITS' : world.mode === 'endless' ? 'BANISH IT — THE NIGHT HAS NO END' : 'BANISH IT BEFORE DAWN', FIELD.w / 2, FIELD.h - 44, 16, PALETTE.gold, 'center');
       text(ctx, 'LANTERNS IN THE DAWN LIGHT REACH 40% FARTHER', FIELD.w / 2, FIELD.h - 22, 12, PALETTE.dim, 'center');
       ctx.globalAlpha = 1;
       ctx.strokeStyle = `rgba(244, 63, 94, ${0.4 * a})`;
@@ -1346,7 +1393,7 @@ export function draw(ctx, world, screen, view, campaign) {
       // Wave banner: the night's new name, fading as the wave opens.
       const a = Math.max(0, 1 - world.waveTime / 2.2);
       ctx.globalAlpha = a;
-      text(ctx, `WAVE ${world.wave} — ${light.phase.name}`, FIELD.w / 2, 150, 30, PALETTE.gold, 'center');
+      text(ctx, world.mode === 'bossrush' ? `BOSS ${world.wave} — ${world.bossName || 'THE GLOOM HERALD'}` : `WAVE ${world.wave} — ${light.phase.name}`, FIELD.w / 2, 150, 30, PALETTE.gold, 'center');
       text(ctx, 'THE DAWN STAR SHIFTS — PLANT LANTERNS IN ITS LIGHT', FIELD.w / 2, 182, 13, PALETTE.cream, 'center');
       ctx.globalAlpha = 1;
     }
@@ -1360,6 +1407,14 @@ export function draw(ctx, world, screen, view, campaign) {
     text(ctx, 'P to resume  ·  R to restart', FIELD.w / 2, 310, 17, PALETTE.dim, 'center');
   }
   if (screen === 'draft') drawDraft(ctx, world);
+  // A boss kill flashes big centre text over play and the draft that
+  // follows it — the run's loudest moment, drawn last so no overlay
+  // ever covers it.
+  if ((screen === 'play' || screen === 'draft') && world.banner) {
+    ctx.globalAlpha = Math.min(1, world.banner.t);
+    text(ctx, world.banner.text, FIELD.w / 2, 240, 34, '#ffd166', 'center');
+    ctx.globalAlpha = 1;
+  }
   if (screen === 'won') drawEnd(ctx, world, true, campaign);
   if (screen === 'lost') drawEnd(ctx, world, false, campaign);
 }

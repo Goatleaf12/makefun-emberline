@@ -21,8 +21,8 @@ const statusEl = document.getElementById('status');
 
 function loadBest(mode = 'campaign') {
   try {
-    // Endless Night keeps its own best score, apart from the campaign's.
-    return Number(localStorage.getItem(mode === 'endless' ? 'lanternward-best-endless' : 'lanternward-best') || 0);
+    // Every mode keeps its own best score, apart from the campaign's.
+    return Number(localStorage.getItem(mode === 'campaign' ? 'lanternward-best' : `lanternward-best-${mode}`) || 0);
   } catch {
     return 0;
   }
@@ -30,7 +30,7 @@ function loadBest(mode = 'campaign') {
 
 function saveBest(value, mode = 'campaign') {
   try {
-    localStorage.setItem(mode === 'endless' ? 'lanternward-best-endless' : 'lanternward-best', String(value));
+    localStorage.setItem(mode === 'campaign' ? 'lanternward-best' : `lanternward-best-${mode}`, String(value));
   } catch {
     // Private mode: the run still counts, it just is not remembered.
   }
@@ -53,9 +53,16 @@ function newRun(seed, difficulty = 'normal', camp = null, mode = 'campaign') {
   if (camp) campaign = camp;
   world = createWorld(seed, loadBest(mode), difficulty, campaign, mode);
   screen = 'title';
-  view = { placeMode: false, placeKind: 'ember', difficulty, mode, pointer: { x: 480, y: 300 } };
+  view = {
+    placeMode: false,
+    placeKind: 'ember',
+    difficulty,
+    mode,
+    pointer: { x: 480, y: 300 },
+    bests: { campaign: loadBest('campaign'), endless: loadBest('endless'), bossrush: loadBest('bossrush') },
+  };
   pending = [];
-  setStatus(mode === 'endless' ? 'ENDLESS NIGHT — no dawn, only waves. Survive.' : 'LANTERNWARD — hold the last light until dawn.');
+  setStatus(mode === 'bossrush' ? 'Boss Rush — one boss after another. No waves, no dawn.' : mode === 'endless' ? 'ENDLESS NIGHT — no dawn, only waves. Survive.' : 'LANTERNWARD — hold the last light until dawn.');
 }
 
 function startPlaying() {
@@ -63,12 +70,12 @@ function startPlaying() {
   // with the difficulty chosen on the title screen; the title world's
   // seed was only its animated backdrop.
   audio.unlock();
-  if (view.mode === 'endless') {
-    // Endless Night: waves without end, its own best score, no campaign.
+  if (view.mode !== 'campaign') {
+    // Endless Night and Boss Rush: no campaign, their own best score.
     campaign = makeCampaign();
-    newRun((Math.random() * 1e9) | 0, view.difficulty || 'normal', campaign, 'endless');
+    newRun((Math.random() * 1e9) | 0, view.difficulty || 'normal', campaign, view.mode);
     screen = 'play';
-    setStatus('Endless Night — survive as many waves as you can. No dawn is coming.');
+    setStatus(view.mode === 'bossrush' ? 'Boss Rush — one boss after another. No waves, no dawn.' : 'Endless Night — survive as many waves as you can. No dawn is coming.');
     return;
   }
   campaign = makeCampaign();
@@ -122,7 +129,7 @@ function syncPhase() {
   } else if (world.phase === 'lost' && screen !== 'lost') {
     screen = 'lost';
     saveBest(Math.max(loadBest(world.mode), world.score), world.mode);
-    setStatus(world.mode === 'endless' ? 'The night claims you — press Space for another endless run.' : 'The light fades — press Space to try this night again.');
+    setStatus(world.mode === 'bossrush' ? 'The rush ends here — press Space to face the bosses again.' : world.mode === 'endless' ? 'The night claims you — press Space for another endless run.' : 'The light fades — press Space to try this night again.');
   }
 }
 
@@ -138,9 +145,11 @@ function handleActions(actions) {
         newRun((Math.random() * 1e9) | 0, world.difficulty, campaign, world.mode);
         screen = 'play';
         setStatus(
-          world.mode === 'endless'
-            ? 'Endless Night again — wave 1. The night has no end.'
-            : `Night ${world.night} again — the night deepens. Hold the light.`,
+          world.mode === 'bossrush'
+            ? 'Boss Rush again — boss 1. The rush never ends.'
+            : world.mode === 'endless'
+              ? 'Endless Night again — wave 1. The night has no end.'
+              : `Night ${world.night} again — the night deepens. Hold the light.`,
         );
       }
     } else if (action === 'pause') {
@@ -223,7 +232,7 @@ function handleActions(actions) {
       } else if (screen === 'lost') {
         newRun((Math.random() * 1e9) | 0, world.difficulty, campaign, world.mode);
         screen = 'play';
-        setStatus(world.mode === 'endless' ? 'Endless Night again — wave 1. The night has no end.' : `Night ${world.night} again — the night deepens. Hold the light.`);
+        setStatus(world.mode === 'bossrush' ? 'Boss Rush again — boss 1. The rush never ends.' : world.mode === 'endless' ? 'Endless Night again — wave 1. The night has no end.' : `Night ${world.night} again — the night deepens. Hold the light.`);
       } else if (screen === 'draft') {
         const rects = draftCardRects(FIELD.w, FIELD.h);
         const idx = draftHit(rects, input.pointer.x, input.pointer.y);
@@ -246,11 +255,12 @@ function handleActions(actions) {
       const num = Number(action.slice(-1));
       if (screen === 'title') {
         // Keys 1 / 2 / 3 pick the difficulty on the title screen;
-        // keys 4 / 5 pick the mode (campaign or Endless Night).
+        // keys 4 / 5 / 6 pick the mode (campaign, Endless Night, Boss Rush).
         const ids = ['gentle', 'normal', 'harsh'];
         if (num >= 1 && num <= 3) view.difficulty = ids[num - 1];
         else if (num === 4) view.mode = 'campaign';
         else if (num === 5) view.mode = 'endless';
+        else if (num === 6) view.mode = 'bossrush';
       } else if (screen === 'map') {
         // Keys 1 / 2 / 3 buy a dawn upgrade; 4 / 5 / 6 choose a relic.
         if (num >= 1 && num <= 3) {

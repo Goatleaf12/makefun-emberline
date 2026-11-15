@@ -29,7 +29,8 @@ import { makeCampaign, nightDef } from './campaign.js';
 // already held, the meta upgrades bought on the map, and the relic chosen
 // for this night; a fresh campaign starts night 1 with nothing. `mode`
 // is 'campaign' (three nights, then dawn) or 'endless' (waves without
-// end, no dawn, its own best score).
+// end, no dawn, its own best score) or 'bossrush' (boss after boss,
+// each tougher than the last, its own best score).
 export function createWorld(seed, best = 0, difficulty = 'normal', campaign = null, mode = 'campaign') {
   const rng = makeRng(seed);
   const diff = DIFFICULTIES[difficulty] || DIFFICULTIES.normal;
@@ -77,7 +78,10 @@ export function createWorld(seed, best = 0, difficulty = 'normal', campaign = nu
     lanterns: makeLanterns(),
     upgrades: makeUpgrades(),
     draftOptions: null,
-    embers: camp.embersCarry,
+    // Boss Rush opens with two lanterns' worth of embers: the first
+    // boss arrives at once, so the tower-defence loop must be live from
+    // the first seconds, not after a wave of saving.
+    embers: mode === 'bossrush' ? 90 : camp.embersCarry,
     score: 0,
     combo: 0,
     comboTimer: 0,
@@ -90,8 +94,9 @@ export function createWorld(seed, best = 0, difficulty = 'normal', campaign = nu
     moteTimer: 0,
     boss: null,
     shake: 0,
-    stats: { motes: 0, banished: 0, flares: 0, placed: 0, waves: 0 },
+    stats: { motes: 0, banished: 0, flares: 0, placed: 0, waves: 0, bosses: 0 },
     events: [],
+    banner: null, // big centre text on a boss kill, e.g. 'BOSS 1 DOWN!'
   };
   syncLanterns(world);
   startWave(world, 1);
@@ -160,9 +165,11 @@ function spawnMote(world, storm) {
 
 // The boss's health: the night's boss in the campaign; in Endless Night
 // it grows 8 HP per boss wave (26, 34, 42, …), so later bosses are a
-// longer fight, not a repeat of the first.
+// longer fight, not a repeat of the first. Boss Rush is the same ladder
+// per boss: 26, 34, 42, … — each boss one round tougher than the last.
 export function bossHp(world) {
   if (world.mode === 'endless') return 26 + (Math.floor(world.wave / 10) - 1) * 8;
+  if (world.mode === 'bossrush') return 26 + (world.wave - 1) * 8;
   return nightDef(world.night).boss.hp;
 }
 
@@ -173,6 +180,20 @@ function endlessBoss(world) {
   if (n <= 1) return { name: 'THE GLOOM HERALD', spawn: 'drifter' };
   if (n === 2) return { name: 'THE HOLLOW KING', spawn: 'chaser' };
   return { name: 'THE NIGHT ITSELF', spawn: 'splitter' };
+}
+
+// Boss Rush cycles the same three bosses, one per round: Herald, Hollow
+// King, Night Itself, then the cycle repeats, tougher each time. The
+// adds each boss spawns rotate one step per cycle, so a repeated boss
+// still brings a new fight.
+export function rushBossAt(wave) {
+  const n = ((wave - 1) % 3) + 1;
+  const name = n === 1 ? 'THE GLOOM HERALD' : n === 2 ? 'THE HOLLOW KING' : 'THE NIGHT ITSELF';
+  const spawn = ['drifter', 'chaser', 'splitter'][(wave - 1 + Math.floor((wave - 1) / 3)) % 3];
+  return { name, spawn };
+}
+function rushBoss(world) {
+  return rushBossAt(world.wave);
 }
 
 function spawnWisp(world, kind) {
@@ -200,6 +221,10 @@ function spawnWisp(world, kind) {
       const b = endlessBoss(world);
       world.bossName = b.name;
       world.bossSpawn = b.spawn;
+    } else if (world.mode === 'bossrush') {
+      const b = rushBoss(world);
+      world.bossName = b.name;
+      world.bossSpawn = b.spawn;
     }
     world.events.push('boss');
   }
@@ -207,6 +232,22 @@ function spawnWisp(world, kind) {
 }
 
 function startWave(world, wave) {
+  // Boss Rush: no ordinary wave — the boss IS the wave, plus two
+  // drifters to keep the field honest. The boss's own spawn trickle
+  // (stepWisps) supplies the rest of the fight.
+  if (world.mode === 'bossrush') {
+    world.wave = wave;
+    const b = rushBoss(world);
+    world.bossName = b.name;
+    world.bossSpawn = b.spawn;
+    world.waveTime = 0;
+    world.waveActive = true;
+    world.spawnQueue = ['boss', 'drifter', 'drifter'];
+    world.spawnTimer = 0.4;
+    world.stormTimer = 0;
+    world.events.push('wave');
+    return;
+  }
   const spec = waveSpec(wave, world.difficulty, world.night, world.mode === 'endless');
   world.wave = wave;
   world.waveTime = 0;
@@ -300,6 +341,14 @@ function banishWisp(world, wisp, source) {
     }
   }
   if (wisp.kind === 'boss') {
+    world.stats.bosses++;
+    world.banner = { text: `BOSS ${world.stats.bosses} DOWN!`, t: 2.4 };
+    // Boss Rush has its own unlock arc: downing the second boss opens
+    // sun lanterns for the rest of the rush.
+    if (world.mode === 'bossrush' && world.stats.bosses === 2 && world.campaign) {
+      world.campaign.meta.sun = 1;
+      floater(world, wisp.x, wisp.y - 30, 'SUN LANTERNS UNLOCKED', '#fde047');
+    }
     world.boss = null;
     for (let i = 0; i < 10; i++) spawnMote(world, true);
     world.events.push('bossdown');
@@ -460,7 +509,9 @@ function stepWisps(world, dt) {
     if (w.kind === 'boss') {
       w.spawnTimer -= dt;
       if (w.spawnTimer <= 0) {
-        w.spawnTimer = 4;
+        // Boss Rush trickles adds slower than the campaign: the rush is
+        // boss after boss, and the adds are the spice, not the meal.
+        w.spawnTimer = world.mode === 'bossrush' ? 6 : 4;
         const child = spawnWisp(world, world.bossSpawn || 'drifter');
         child.x = w.x;
         child.y = w.y + 30;
@@ -576,6 +627,10 @@ export function step(world, dt, steer, dashHeld, actions) {
   if (world.magnetTimer > 0) world.magnetTimer -= dt;
   if (world.stormTimer > 0) world.stormTimer -= dt;
   if (world.shake > 0) world.shake -= dt;
+  if (world.banner) {
+    world.banner.t -= dt;
+    if (world.banner.t <= 0) world.banner = null;
+  }
 
   for (const action of actions || []) {
     if (action.kind === 'flare') fireFlare(world);
@@ -642,8 +697,9 @@ export function step(world, dt, steer, dashHeld, actions) {
   // Wave cleared: nothing left to spawn, nothing left alive.
   if (world.waveActive && world.spawnQueue.length === 0 && world.wisps.length === 0) {
     world.waveActive = false;
-    if (world.mode === 'endless' || world.wave < 10) {
-      // No dawn in Endless Night: the next wave just opens, forever.
+    if (world.mode !== 'campaign' || world.wave < 10) {
+      // No dawn in Endless Night or Boss Rush: the next wave — or the
+      // next boss — just opens, forever.
       openDraft(world);
     } else {
       // The night is held: the last night wins the campaign, any earlier

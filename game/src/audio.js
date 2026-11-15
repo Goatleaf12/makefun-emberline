@@ -1,7 +1,4 @@
-// audio.js — every sound LANTERNWARD makes, synthesized live in WebAudio.
-// No audio files ship: chimes, thuds, swells and the ambient pad are all
-// oscillators and noise through filters. Silent until the player first
-// interacts, and every method is a safe no-op when audio is unavailable.
+// audio.js — all sounds synthesized live in WebAudio; no audio files. Silent until first input.
 
 export function makeAudio() {
   const audio = {
@@ -27,7 +24,6 @@ export function makeAudio() {
     }
   }
 
-  // Start the context (on first input) and the slow ambient pad.
   audio.unlock = function unlock() {
     if (!ensure() || audio.started) return;
     audio.started = true;
@@ -78,7 +74,6 @@ export function makeAudio() {
     src.start(t0);
   }
 
-  // A soft two-oscillator pad that breathes under the whole run.
   function startPad() {
     const ctx = audio.ctx;
     const gain = ctx.createGain();

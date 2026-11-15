@@ -1,19 +1,9 @@
-// daylight.js — the wandering light: one sky per wave, one light that moves.
-// Every wave the night wears a different sky, and a Dawn Star hangs over
-// a different part of the field, drifting while its wave lasts. A lantern
-// inside the lit pool reaches 40% farther and fires 25% faster; a mote
-// gathered inside it pays +5. So the best ground changes every wave.
-//
-// Pure functions of (wave, waveTime) only: no generator, no mutation, no
-// wall clock. The light can never change a replay, a probe, or a shot.
+// daylight.js — one sky per wave; the Dawn Star's light buffs lanterns (+40% range, +25% rate) and motes (+5).
 
 import { FIELD } from './config.js';
 
 export const LIGHT_RADIUS = 235;
 
-// One phase per wave: its name, its sky, its moon, its hills, and where
-// the Dawn Star anchors while the wave lasts. The night runs dusk, deep
-// night, blood moon, the long dark, then first pale light to dawn's edge.
 export const LIGHT_PHASES = [
   { name: 'DUSK', top: '#221133', mid: '#3d1e50', bottom: '#6e2f40', moon: '#fde68a', moonHalo: '253, 230, 138', hillsFar: '#171031', hillsNear: '#0e0a24', stars: 1.0, nebula: 0.16, anchor: { x: 150, y: 95 } },
   { name: 'EMBER DUSK', top: '#1a0f2e', mid: '#452052', bottom: '#7c3a2d', moon: '#fcd34d', moonHalo: '252, 211, 77', hillsFar: '#150d2b', hillsNear: '#0d091f', stars: 1.0, nebula: 0.15, anchor: { x: 810, y: 95 } },
@@ -31,15 +21,11 @@ export function phaseForWave(wave) {
   return LIGHT_PHASES[Math.max(1, Math.min(10, wave)) - 1];
 }
 
-// The sky colours for a wave: gradient stops, moon, hills, star brightness.
 export function skyForWave(wave) {
   return phaseForWave(wave);
 }
 
-// Where the Dawn Star is right now, and how far its light reaches.
-// It drifts on a slow loop around its anchor while the wave lasts.
-// In Endless Night and Boss Rush the ten skies cycle again and again —
-// the night never reaches dawn, so the light keeps wandering instead.
+// Dawn Star position: drifts around its anchor; skies cycle in endless/rush.
 export function lightState(world) {
   const wave = world.mode === 'campaign' ? world.wave : ((world.wave - 1) % 10) + 1;
   const phase = phaseForWave(wave);
@@ -54,7 +40,6 @@ export function lightState(world) {
   };
 }
 
-// Is a point standing in the Dawn Star's light?
 export function inLight(x, y, light) {
   const dx = x - light.x;
   const dy = y - light.y;

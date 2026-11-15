@@ -1,8 +1,4 @@
-// main.js — boot, the fixed-step loop, screens, and the ?shot= hook.
-// The live game runs on requestAnimationFrame with a fixed 1/60 s step.
-// Shot mode (?shot=kind&seed=N) stages a scene synchronously instead:
-// it steps the real rules with the autopilot, paints once, and raises
-// window.__shotReady. No wall clock ever enters the simulation itself.
+// main.js — boot, fixed-step loop, screens, and the ?shot= hook. Shot mode stages a scene synchronously and raises window.__shotReady; no wall clock ever enters the sim.
 
 import { FIELD } from './config.js';
 import { createWorld, step, draftPick } from './world.js';
@@ -28,7 +24,6 @@ const statusEl = document.getElementById('status');
 
 function loadBest(mode = 'campaign') {
   try {
-    // Every mode keeps its own best score, apart from the campaign's.
     return Number(localStorage.getItem(mode === 'campaign' ? 'lanternward-best' : `lanternward-best-${mode}`) || 0);
   } catch {
     return 0;
@@ -39,7 +34,6 @@ function saveBest(value, mode = 'campaign') {
   try {
     localStorage.setItem(mode === 'campaign' ? 'lanternward-best' : `lanternward-best-${mode}`, String(value));
   } catch {
-    // Private mode: the run still counts, it just is not remembered.
   }
 }
 
@@ -58,9 +52,7 @@ let pending = []; // one-shot world actions for the next fixed step
 
 function newRun(seed, difficulty = 'normal', camp = null, mode = 'campaign') {
   if (camp) campaign = camp;
-  // Lantern Mastery: the keeper's level starts the run with a few
-  // extra embers (none at level 1); the run's end banks its XP. At
-  // level 2 the Storm Lantern card joins the draft pool for this run.
+  // Mastery: the level starts the run with extra embers (none at level 1); the run's end banks its XP. At level 2 the Storm Lantern card joins the draft pool.
   const mastery = loadMastery();
   world = createWorld(seed, loadBest(mode), difficulty, campaign, mode, masteryBonus(masteryLevel(mastery)));
   world.stormUnlocked = masteryLevel(mastery) >= 2;
@@ -80,9 +72,6 @@ function newRun(seed, difficulty = 'normal', camp = null, mode = 'campaign') {
 }
 
 function startPlaying() {
-  // A fresh campaign: three nights, no shards, no relic. The run starts
-  // with the difficulty chosen on the title screen; the title world's
-  // seed was only its animated backdrop.
   audio.unlock();
   if (view.mode !== 'campaign') {
     // Endless Night and Boss Rush: no campaign, their own best score.
@@ -99,8 +88,6 @@ function startPlaying() {
 }
 
 function startNight() {
-  // The next night of the same campaign: the map's shards, meta upgrades
-  // and chosen relic all carry in.
   audio.unlock();
   newRun((Math.random() * 1e9) | 0, world ? world.difficulty : 'normal', campaign);
   screen = 'play';
@@ -129,13 +116,10 @@ function syncPhase() {
     screen = 'draft';
     setStatus(`Wave ${world.wave} cleared — choose an upgrade.`);
   } else if (world.phase === 'nightwon' && screen === 'play') {
-    // The night is held: settle it into the campaign, then open the map.
     const earned = completeNight(campaign, world);
     screen = 'map';
     setStatus(`Night ${world.night} held — ${earned} dawn shards earned. Spend them, choose a relic.`);
   } else if (world.phase === 'won' && screen !== 'won') {
-    // Settle the last night through the same path as the others, so the
-    // campaign total on the victory screen includes all three nights.
     completeNight(campaign, world);
     screen = 'won';
     saveBest(Math.max(loadBest(world.mode), world.score), world.mode);
@@ -166,8 +150,6 @@ function handleActions(actions) {
       else if (screen === 'map') startNight();
       else if (screen === 'won') startPlaying();
       else if (screen === 'lost') {
-        // The campaign keeps its shards and meta: only this night restarts.
-        // An endless run just starts again at wave 1.
         newRun((Math.random() * 1e9) | 0, world.difficulty, campaign, world.mode);
         screen = 'play';
         setStatus(
@@ -206,8 +188,6 @@ function handleActions(actions) {
       if (screen === 'play') pending.push({ kind: 'flare' });
     } else if (action === 'click') {
       if (screen === 'title') {
-        // A click on a mode button picks the mode; on a difficulty button
-        // selects it; anywhere else starts.
         const mRects = modeRects(FIELD.w, FIELD.h);
         const mHit = mRects.find(
           (r) =>
@@ -230,8 +210,6 @@ function handleActions(actions) {
           else startPlaying();
         }
       } else if (screen === 'map') {
-        // A click on a shop card buys it; on a relic card chooses it;
-        // anywhere else enters the next night.
         const shopRects = mapShopRects(FIELD.w, FIELD.h);
         const shopIdx = draftHit(shopRects, input.pointer.x, input.pointer.y);
         if (shopIdx >= 0) {
@@ -280,15 +258,12 @@ function handleActions(actions) {
     ) {
       const num = Number(action.slice(-1));
       if (screen === 'title') {
-        // Keys 1 / 2 / 3 pick the difficulty on the title screen;
-        // keys 4 / 5 / 6 pick the mode (campaign, Endless Night, Boss Rush).
         const ids = ['gentle', 'normal', 'harsh'];
         if (num >= 1 && num <= 3) view.difficulty = ids[num - 1];
         else if (num === 4) view.mode = 'campaign';
         else if (num === 5) view.mode = 'endless';
         else if (num === 6) view.mode = 'bossrush';
       } else if (screen === 'map') {
-        // Keys 1 / 2 / 3 buy a dawn upgrade; 4 / 5 / 6 choose a relic.
         if (num >= 1 && num <= 3) {
           const item = META_SHOP[num - 1];
           if (buyMeta(campaign, item.id)) {
@@ -304,7 +279,6 @@ function handleActions(actions) {
           setStatus(`Relic chosen: ${relic.name} for Night ${campaign.night}.`);
         }
       } else if (screen === 'play' && view.placeMode) {
-        // Keys 1 / 2 / 3 / 4 switch the lantern kind while placing.
         if (action === 'draft1') {
           view.placeKind = 'ember';
           setStatus('Placing an ember lantern — click the field to plant (45 embers). B cancels.');
@@ -377,8 +351,6 @@ if (shotKind) {
   campaign = staged.campaign || campaign;
   screen = staged.screen;
   view = staged.view;
-  // Shot pages show the keeper's mastery too: what the staged scene
-  // earned, or the stored mastery by default.
   view.mastery = staged.view.mastery || loadMastery();
   view.masteryGain = staged.view.masteryGain || null;
   fitCanvas();
@@ -405,12 +377,10 @@ if (shotKind) {
       }
       if (n === 5) acc = 0;
     } else {
-      // Menus still animate (title pulse, draft glow): advance sim time
-      // without stepping rules, so nothing in the run changes.
+      // Menus still animate: advance sim time without stepping rules, so nothing in the run changes.
       if (world) world.time += dt;
       handleActions(input.drain());
       if (screen === 'draft' && world.phase === 'draft') {
-        // Draft keys/clicks are handled above; nothing else to do here.
       }
     }
     draw(ctx, world, screen, view, campaign);

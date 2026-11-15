@@ -1,7 +1,4 @@
-// config.js — every number LANTERNWARD is tuned from, in one place.
-// The field is 960 by 600; ten waves run from dusk to dawn, wave 10
-// ends with the Gloom Herald. Hearts, wisp speed and count vary by
-// difficulty; one flare, and a mote economy that buys lanterns.
+// config.js — every tuning number, in one place.
 
 export const FIELD = { w: 960, h: 600 };
 
@@ -26,30 +23,27 @@ export const PALETTE = {
 
 export const TUNE = {
   hearts: 4,
-  emberSpeed: 235, // px/s, before Swift Wings
+  emberSpeed: 235,
   dashSpeed: 430,
-  dashTime: 0.16, // seconds of dash
+  dashTime: 0.16,
   dashCooldown: 2.2,
   emberRadius: 13,
   moteScore: 10,
-  moteEnergy: 6, // flare energy per mote
-  moteEmbers: 1, // currency per mote
-  wispScore: 25, // banishing a wisp pays this, plus its kind bonus
+  moteEnergy: 6,
+  moteEmbers: 1,
+  wispScore: 25,
   flareRadius: 250,
-  flareCost: 90, // energy, 0..100
+  flareCost: 90,
   flareDamage: 3,
-  comboWindow: 2.5, // seconds to keep the chain alive
+  comboWindow: 2.5,
   comboMax: 5,
-  braveRadius: 110, // a mote this close to a wisp pays double
+  braveRadius: 110,
   ringScores: [1000, 3000, 7000, 14000, 25000],
   stormWaves: [3, 6, 9],
-  wispLifetime: 22, // seconds before a wisp fades out on its own
+  wispLifetime: 22,
   pickupLifetime: 12,
 };
 
-// The three difficulties, picked on the title screen (keys 1 / 2 / 3).
-// Gentle is for learning; harsh is faster with one heart fewer.
-// Difficulty only changes hearts, wisp speed and count — never the rules.
 export const DIFFICULTIES = {
   gentle: { name: 'FIRST LIGHT', tag: 'gentle', hearts: 5, speed: 0.8, count: -2 },
   normal: { name: 'LONG NIGHT', tag: 'the intended night', hearts: 4, speed: 1, count: 0 },
@@ -57,10 +51,7 @@ export const DIFFICULTIES = {
 };
 export const DIFFICULTY_IDS = ['gentle', 'normal', 'harsh'];
 
-// What one wave throws at the keeper. Counts and speed grow; new
-// kinds join as the night deepens. Wave 10 is the boss wave. Later
-// campaign nights are harder; Endless Night borrows the later nights'
-// kinds as its waves climb, and a boss every tenth wave.
+// Wave spec: counts/speed grow, new kinds join, wave 10 is the boss.
 export function waveSpec(wave, difficulty = 'normal', night = 1, endless = false) {
   const kinds = ['drifter'];
   if (wave >= 2) kinds.push('chaser');
@@ -72,7 +63,6 @@ export function waveSpec(wave, difficulty = 'normal', night = 1, endless = false
   const diff = DIFFICULTIES[difficulty] || DIFFICULTIES.normal;
   const nightCount = night >= 3 ? 1 : 0;
   const nightSpeed = night >= 3 ? 1.06 : night === 2 ? 1.03 : 1;
-  // Past wave 10 the endless horde itself speeds up, 1.5% a wave.
   const endlessSpeed = endless && wave > 10 ? 1 + 0.015 * (wave - 10) : 1;
   return {
     count: Math.max(3, (wave === 1 ? 5 : 5 + wave * 2) + diff.count + nightCount),
@@ -83,7 +73,6 @@ export function waveSpec(wave, difficulty = 'normal', night = 1, endless = false
   };
 }
 
-// A wisp kind's body: health, speed factor, score bonus, radius, colour.
 export const WISP_KINDS = {
   drifter: { hp: 1, speed: 0.9, bonus: 0, radius: 15, color: PALETTE.wispDrifter },
   chaser: { hp: 2, speed: 1.15, bonus: 15, radius: 15, color: PALETTE.wispChaser },
@@ -95,7 +84,7 @@ export const WISP_KINDS = {
   boss: { hp: 26, speed: 0.55, bonus: 500, radius: 34, color: PALETTE.wispBoss },
 };
 
-// The three pickups. One slot only: taking a new one replaces the old.
+// Three pickups; one slot only: taking a new one replaces the old.
 export const PICKUPS = {
   shield: { name: 'Aegis Shield', hint: 'Blocks one hit' },
   magnet: { name: 'Mote Magnet', hint: 'Pulls motes to you' },

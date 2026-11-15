@@ -1,15 +1,11 @@
-// input.js — keyboard + pointer state for LANTERNWARD.
-// The game reads input through a small action queue: keys that mean "do it
-// once" (confirm, flare, place, pause, restart, draft picks) are queued on
-// keydown so a quick tap can never fall between frames, while held keys and
-// the pointer give continuous steering.
+// input.js — keyboard + pointer state; one-shot actions queued on keydown, never lost between frames.
 
 export function makeInput(canvas) {
   const input = {
     keys: new Set(),
-    queue: [], // one-shot actions: 'confirm' | 'flare' | 'place' | 'pause' | 'restart' | 'mute' | 'draft1'..'draft6'
+    queue: [], // one-shot actions, delivered once each
     pointer: { x: 0, y: 0, down: false, active: false },
-    placeMode: false, // B toggles lantern placement; click plants, right-click/Esc cancels
+    placeMode: false,
   };
 
   const ACTION_KEYS = {
@@ -88,7 +84,6 @@ export function makeInput(canvas) {
 
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
-  // The steering vector this frame: arrows/WASD first, else hold-mouse.
   input.steer = function steer(ember) {
     let x = 0;
     let y = 0;
@@ -113,7 +108,6 @@ export function makeInput(canvas) {
     return input.keys.has('ShiftLeft') || input.keys.has('ShiftRight');
   };
 
-  // Drain the one-shot queue; each action is delivered once.
   input.drain = function drain() {
     const out = input.queue;
     input.queue = [];

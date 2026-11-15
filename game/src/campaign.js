@@ -1,12 +1,4 @@
-// campaign.js — the campaign of three nights: meta-progression between runs.
-// One run is a single night of ten waves; a campaign is three nights in
-// a row, each with its own objective and boss. Between nights the keeper
-// spends Dawn Shards on permanent upgrades that carry into every later
-// night. Draft upgrades carry over too, lanterns do not, and half the
-// embers carry — so the build grows while the nights get harder.
-//
-// Pure data and pure functions of (campaign, world) only: no DOM, no RNG,
-// no clock. The map screen, the shots and the probes all read this file.
+// campaign.js — three nights, one dawn: meta-progression between runs (shards, shop, relics).
 
 export const NIGHTS = [
   {
@@ -32,8 +24,6 @@ export const NIGHTS = [
   },
 ];
 
-// The meta shop on the campaign map: permanent upgrades, bought with
-// Dawn Shards. Each may be taken up to `max` times across the campaign.
 export const META_SHOP = [
   {
     id: 'ember-heart',
@@ -67,17 +57,13 @@ export const META_SHOP = [
   },
 ];
 
-// Dawn Relics: one is chosen on the campaign map before each night from
-// the second on, and lasts that night only. Each is a pure tuning lever,
-// so the choice is a real decision, not a new system.
+// Dawn Relics: one chosen before each night from the second on, lasts that night only.
 export const RELICS = [
   { id: 'twin-flames', name: 'Twin Flames', desc: 'Flare +80 px, +1 damage' },
   { id: 'golden-motes', name: 'Golden Motes', desc: 'Motes +5 score, +1 ember' },
   { id: 'stout-heart', name: 'Stout Heart', desc: '+1 heart this night' },
 ];
 
-// Choose (or re-choose) the relic for the coming night. Free, one at a
-// time; picking another replaces the first.
 export function chooseRelic(campaign, id) {
   if (!RELICS.find((r) => r.id === id)) return false;
   campaign.relic = id;
@@ -88,20 +74,18 @@ export function relicDef(id) {
   return RELICS.find((r) => r.id === id) || null;
 }
 
-// The order the autopilot (and a hurried keeper) buys in: the unlock
-// first, then room for more lanterns, then hearts.
 export const META_PRIORITY = ['sun-lantern', 'lantern-rack', 'ember-heart'];
 
 export function makeCampaign() {
   return {
-    night: 1, // the night the next world starts on (1..3)
-    shards: 0, // Dawn Shards: the meta currency
-    relic: null, // the relic chosen for the coming night (null = none)
+    night: 1,
+    shards: 0,
+    relic: null,
     meta: { hearts: 0, slots: 0, sun: 0 },
-    metaTaken: {}, // shop id -> takes so far
-    totalScore: 0, // sum of the nights' scores
+    metaTaken: {},
+    totalScore: 0,
     nightsCleared: 0,
-    embersCarry: 0, // half the embers of the last night, for the next one
+    embersCarry: 0,
   };
 }
 
@@ -109,7 +93,6 @@ export function nightDef(night) {
   return NIGHTS[Math.max(1, Math.min(3, night)) - 1];
 }
 
-// How far the run has come toward this night's objective.
 export function objectiveCount(world) {
   const kind = nightDef(world.night).objective.kind;
   if (kind === 'rings') return world.ringsLit;
@@ -121,14 +104,12 @@ export function objectiveMet(world) {
   return objectiveCount(world) >= nightDef(world.night).objective.target;
 }
 
-// Dawn Shards a finished night pays: 2 per beacon ring, 3 for the
-// night's objective, 5 for the boss. A perfect night pays 18.
+// Dawn Shards a finished night pays: 2 per ring, 3 for the objective, 5 for the boss (max 18).
 export function nightShards(world) {
   return world.ringsLit * 2 + (objectiveMet(world) ? 3 : 0) + 5;
 }
 
-// Settle a finished night into the campaign. Returns the shards earned.
-// Call exactly once per night, when the world's phase turns to nightwon.
+// Settle a finished night into the campaign, once per night. Returns shards earned.
 export function completeNight(campaign, world) {
   const earned = nightShards(world);
   campaign.shards += earned;
@@ -140,7 +121,6 @@ export function completeNight(campaign, world) {
   return earned;
 }
 
-// Buy one meta upgrade. Returns true when the purchase lands.
 export function buyMeta(campaign, id) {
   const item = META_SHOP.find((m) => m.id === id);
   if (!item) return false;
@@ -153,7 +133,6 @@ export function buyMeta(campaign, id) {
   return true;
 }
 
-// One line naming the campaign's build so far, for the map screen.
 export function metaLine(campaign) {
   const parts = [];
   for (const item of META_SHOP) {

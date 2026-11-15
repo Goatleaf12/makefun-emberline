@@ -1,11 +1,5 @@
-// draft.js — the between-wave upgrade draft: the run's build choices.
-// After each wave clears (1–9), play pauses and three cards are offered
-// from the pool. Each card may be taken a few times; the run's build is
-// the sum of its picks. Picks are deterministic from the run's seeded
-// generator, and cards are clickable or picked with keys 1/2/3.
+// draft.js — the between-wave upgrade draft: 3 cards, pick 1, the build is the sum of picks.
 
-// One upgrade: id, name, one-line effect, max takes, and the function
-// that applies one take to the run's upgrade state.
 export const UPGRADES = [
   {
     id: 'heart',
@@ -26,7 +20,7 @@ export const UPGRADES = [
     name: 'Kindled Flare',
     desc: 'Flare costs 15 less energy',
     max: 3,
-    apply: (u) => { u.flareCost -= 15; }, // world pays max(30, 90 + flareCost)
+    apply: (u) => { u.flareCost -= 15; },
   },
   {
     id: 'dash-swift',
@@ -110,11 +104,11 @@ export const UPGRADES = [
 // The run's upgrade state: one object the world owns, the draft mutates.
 export function makeUpgrades() {
   return {
-    maxHearts: 0, // added to the base 4
+    maxHearts: 0,
     heal: 0,
     flareRadius: 0,
-    flareCost: 0, // subtracted from the base 90
-    dashCooldown: 1, // multiplier on the base 2.2 s
+    flareCost: 0,
+    dashCooldown: 1,
     magnet: 0,
     comboWindow: 0,
     speed: 0,
@@ -122,17 +116,15 @@ export function makeUpgrades() {
     moteEnergy: 0,
     lanternSlots: 0,
     lanternRange: 0,
-    lanternCooldown: 1, // multiplier on the base 0.85 s
+    lanternCooldown: 1,
     lanternDamage: 0,
-    frost: 0, // takes of the Frost Lantern card: 0 = frost lanterns locked
-    storm: 0, // takes of the Storm Lantern card: 0 = storm lanterns locked
-    taken: {}, // id -> takes so far
+    frost: 0,
+    storm: 0,
+    taken: {},
   };
 }
 
-// Three distinct cards the run may still take, drawn from the generator.
-// The Storm Lantern card joins the pool only at Mastery level 2: the
-// probes run at level 1, so their drafts stay exactly the v20 ones.
+// Three distinct cards the run may still take. The Storm Lantern card joins the pool only at Mastery level 2.
 export function rollDraft(rng, upgrades, allowStorm = false) {
   const pool = UPGRADES.filter((u) => (u.id !== 'storm-lantern' || allowStorm) && (upgrades.taken[u.id] || 0) < u.max);
   const options = [];
@@ -143,13 +135,11 @@ export function rollDraft(rng, upgrades, allowStorm = false) {
   return options;
 }
 
-// Apply one take of an upgrade and count it.
 export function applyUpgrade(upgrades, upgrade) {
   upgrade.apply(upgrades);
   upgrades.taken[upgrade.id] = (upgrades.taken[upgrade.id] || 0) + 1;
 }
 
-// Card rectangles for the draft screen: three cards in a row, centred.
 export function draftCardRects(w, h) {
   const cw = 210;
   const ch = 150;
@@ -165,7 +155,6 @@ export function draftCardRects(w, h) {
   }));
 }
 
-// Which card (0, 1, 2) a point lands on, or -1.
 export function draftHit(rects, x, y) {
   for (let i = 0; i < rects.length; i++) {
     const r = rects[i];
@@ -174,7 +163,6 @@ export function draftHit(rects, x, y) {
   return -1;
 }
 
-// One line naming the build so far, for the draft screen and the HUD.
 export function buildLine(upgrades) {
   const parts = [];
   for (const u of UPGRADES) {

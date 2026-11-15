@@ -1,6 +1,4 @@
-// random.js — the run's only source of chance: a small seeded generator.
-// Every mote, wisp, storm and draft card comes from this generator, so one
-// seed replays one run exactly: same seed, same game, every time.
+// random.js — seeded RNG: one seed replays one run exactly.
 
 export function makeRng(seed) {
   let a = seed >>> 0;
@@ -14,17 +12,11 @@ export function makeRng(seed) {
   };
 }
 
-// An integer in [min, max] from the generator.
-export function int(rng, min, max) {
-  return min + Math.floor(rng() * (max - min + 1));
-}
-
 // One element of an array, uniformly.
 export function pick(rng, arr) {
   return arr[Math.floor(rng() * arr.length)];
 }
 
-// A point inside the field, kept `margin` away from the edges.
 export function fieldPoint(rng, w, h, margin) {
   return {
     x: margin + rng() * (w - margin * 2),

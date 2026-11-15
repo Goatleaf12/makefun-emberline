@@ -1,7 +1,4 @@
-// render.js — everything LANTERNWARD paints: field, entities, HUD, screens.
-// Every screen is built to be legible at thumbnail size: big type, high
-// contrast, the HUD always complete. All motion reads the world's sim
-// time, so a staged shot renders identically every run.
+// render.js — everything LANTERNWARD paints: field, entities, HUD, screens. Built legible at thumbnail size; all motion reads sim time, so a staged shot renders identically every run.
 
 import { FIELD, PALETTE, TUNE, DIFFICULTIES, DIFFICULTY_IDS } from './config.js';
 import { makeRng } from './random.js';
@@ -13,7 +10,6 @@ import { lightState, inLight, skyForWave } from './daylight.js';
 import { NIGHTS, META_SHOP, RELICS, nightDef, objectiveCount, metaLine, relicDef } from './campaign.js';
 import { rushBossAt } from './world.js';
 
-// Fixed stars and nebulae: one seeded layout, the same in every run.
 const STAR_RNG = makeRng(20261116);
 const STARS = [];
 for (let layer = 0; layer < 3; layer++) {
@@ -54,7 +50,6 @@ function glowSprite(color) {
 
 function glow(ctx, x, y, radius, color) {
   const img = glowSprite(color);
-  // Additive light: overlapping glows bloom instead of washing out.
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
   ctx.drawImage(img, x - radius, y - radius, radius * 2, radius * 2);
@@ -77,8 +72,6 @@ function text(ctx, str, x, y, size, color, align, weight) {
 }
 
 function drawField(ctx, world, light) {
-  // The sky belongs to the wave: dusk, deep night, blood moon, dawn's
-  // edge — every wave of the night looks different from the last.
   const sky = skyForWave(world.wave);
   const g = ctx.createLinearGradient(0, 0, 0, FIELD.h);
   g.addColorStop(0, sky.top);
@@ -103,8 +96,7 @@ function drawField(ctx, world, light) {
   }
   ctx.globalAlpha = 1;
   drawSceneryBack(ctx, world);
-  // The Dawn Star's lit pool: a bright wash on the ground with a dashed
-  // gold rim, so the zone a lantern wants to stand in reads at a glance.
+  // The Dawn Star's lit pool: bright wash + dashed gold rim.
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
   const wash = ctx.createRadialGradient(light.x, light.y, 10, light.x, light.y, light.radius);
@@ -121,9 +113,7 @@ function drawField(ctx, world, light) {
   ctx.arc(light.x, light.y, light.radius, 0, Math.PI * 2);
   ctx.stroke();
   ctx.setLineDash([]);
-  // The Dawn Star itself: a small bright orb hovering over its pool,
-  // drifting with it. It hangs just inside the pool, clear of the HUD
-  // bar and the boss-intro bars, so it reads in every screenshot.
+  // The Dawn Star itself: a small bright orb over its pool, clear of the HUD and intro bars.
   const ox = light.x;
   const oy = Math.max(70, Math.min(FIELD.h - 40, light.y + 26));
   const orbHalo = ctx.createRadialGradient(ox, oy, 2, ox, oy, 52);
@@ -149,7 +139,6 @@ function drawField(ctx, world, light) {
   ctx.beginPath();
   ctx.arc(ox, oy, 8, 0, Math.PI * 2);
   ctx.fill();
-  // The lighthouse tower: a fixed landmark at the top, sweeping its beams.
   const tx = FIELD.w / 2;
   const ty = 44;
   for (const dir of [-1, 1]) {
@@ -192,7 +181,6 @@ function drawMotes(ctx, world, light) {
       ctx.stroke();
     }
     if (mote.storm) {
-      // Storm motes streak down like falling sparks.
       ctx.strokeStyle = 'rgba(255, 140, 66, 0.35)';
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -209,7 +197,6 @@ function drawMotes(ctx, world, light) {
     ctx.beginPath();
     ctx.arc(mote.x - 2, mote.y + bob - 2, r * 0.35, 0, Math.PI * 2);
     ctx.fill();
-    // Four-point star glint, so motes read even at thumbnail size.
     const gl = r * 1.6;
     ctx.strokeStyle = 'rgba(255, 247, 230, 0.9)';
     ctx.lineWidth = 1.5;
@@ -234,15 +221,13 @@ function drawWisps(ctx, world) {
       ctx.stroke();
       ctx.setLineDash([]);
     }
-    // Facing: hunters look at the keeper, wanderers follow their heading.
     const facing =
       w.kind === 'chaser' || w.kind === 'boss'
         ? Math.atan2(world.ember.y - w.y, world.ember.x - w.x)
         : w.heading;
     const fx = Math.cos(facing);
     const fy = Math.sin(facing);
-    // Tail: three fading puffs trailing behind the direction of travel,
-    // so every kind reads as moving, not hovering.
+    // Tail: three fading puffs trailing behind, so every kind reads as moving.
     for (let i = 1; i <= 3; i++) {
       ctx.globalAlpha = 0.28 - i * 0.07;
       ctx.fillStyle = w.color;
@@ -258,8 +243,6 @@ function drawWisps(ctx, world) {
     }
     ctx.globalAlpha = 1;
     if (w.kind === 'boss') {
-      // Ground shadow + a slow-turning dark aura ring: the Herald owns
-      // the ground it stands on.
       ctx.fillStyle = 'rgba(3, 6, 18, 0.55)';
       ctx.beginPath();
       ctx.ellipse(w.x, w.y + w.r + 10, w.r * 1.15, 10, 0, 0, Math.PI * 2);
@@ -279,8 +262,7 @@ function drawWisps(ctx, world) {
     glow(ctx, w.x, w.y, w.r * 2.6, rgba(w.color, 0.55));
     ctx.fillStyle = w.color;
     if (w.kind === 'gloom') {
-      // A heavy bruise of a wisp: a big dark-violet body with a slow
-      // dashed halo, so its 4 HP reads before the first bolt lands.
+      // A big dark-violet body with a slow dashed halo, so its 4 HP reads before the first bolt lands.
       ctx.beginPath();
       ctx.arc(w.x, w.y, w.r, 0, Math.PI * 2);
       ctx.fill();
@@ -296,7 +278,6 @@ function drawWisps(ctx, world) {
       ctx.arc(w.x, w.y, w.r * 0.5, 0, Math.PI * 2);
       ctx.fill();
     } else if (w.kind === 'spark') {
-      // A live spark: a small gold diamond that darts, with a short tail.
       ctx.save();
       ctx.translate(w.x, w.y);
       ctx.rotate(Math.PI / 4);
@@ -309,7 +290,6 @@ function drawWisps(ctx, world) {
       ctx.lineTo(w.x - fx * (w.r + 18), w.y - fy * (w.r + 18));
       ctx.stroke();
     } else if (w.kind === 'splitter') {
-      // Figure-eight body: two lobes side by side, split down the middle.
       const px = -fy;
       const py = fx;
       ctx.beginPath();
@@ -317,7 +297,6 @@ function drawWisps(ctx, world) {
       ctx.arc(w.x - px * 6, w.y - py * 6, w.r * 0.78, 0, Math.PI * 2);
       ctx.fill();
     } else if (w.kind === 'swift') {
-      // A comet: stretched along its heading, with speed streaks.
       ctx.save();
       ctx.translate(w.x, w.y);
       ctx.rotate(facing);
@@ -341,7 +320,6 @@ function drawWisps(ctx, world) {
     }
     ctx.fillStyle = 'rgba(7, 11, 29, 0.85)';
     if (w.kind === 'bulwark') {
-      // Armor ring + rivets: the bulwark is the only wisp that wears plate.
       ctx.strokeStyle = '#475569';
       ctx.lineWidth = 4;
       ctx.beginPath();
@@ -357,7 +335,6 @@ function drawWisps(ctx, world) {
       ctx.fillStyle = 'rgba(7, 11, 29, 0.85)';
     }
     if (w.kind === 'chaser') {
-      // Horns + angry brow slashes.
       ctx.beginPath();
       ctx.moveTo(w.x - w.r * 0.7, w.y - w.r * 0.5);
       ctx.lineTo(w.x - w.r * 1.15, w.y - w.r * 1.25);
@@ -379,7 +356,6 @@ function drawWisps(ctx, world) {
       ctx.lineTo(w.x + 2, w.y - 5);
       ctx.stroke();
     } else if (w.kind === 'splitter') {
-      // A dark seam down the middle where it will split.
       ctx.strokeStyle = 'rgba(7, 11, 29, 0.85)';
       ctx.lineWidth = 2.5;
       ctx.beginPath();
@@ -400,7 +376,6 @@ function drawWisps(ctx, world) {
     ctx.arc(w.x + 5 + ex, w.y - 2 + ey, 2.4, 0, Math.PI * 2);
     ctx.fill();
     if (w.chilled) {
-      // A frost lantern is chilling this wisp: a pale-blue ring says so.
       ctx.strokeStyle = 'rgba(125, 211, 252, 0.9)';
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -408,7 +383,6 @@ function drawWisps(ctx, world) {
       ctx.stroke();
     }
     if (w.kind === 'boss') {
-      // Crown spikes + health bar.
       ctx.fillStyle = '#f43f5e';
       for (let i = -1; i <= 1; i++) {
         ctx.beginPath();
@@ -425,7 +399,6 @@ function drawWisps(ctx, world) {
       ctx.fillRect(w.x - bw / 2, w.y - w.r - 26, bw * Math.max(0, w.hp / w.maxHp), 7);
       text(ctx, (world.bossName || 'GLOOM HERALD').toUpperCase(), w.x, w.y - w.r - 38, 12, '#fb7185', 'center');
     } else if (w.maxHp > 1) {
-      // Small health pips for two-hit wisps.
       for (let i = 0; i < w.maxHp; i++) {
         ctx.fillStyle = i < w.hp ? w.color : 'rgba(255,255,255,0.25)';
         ctx.beginPath();
@@ -442,9 +415,7 @@ function drawLanterns(ctx, world, view, light) {
     const sun = l.kind === 'sun';
     const storm = l.kind === 'storm';
     if (sun) {
-      // Sun lantern: a broad golden lamp on a tall post, ringed by eight
-      // short rays. It fires three bolts at once, so it reads as the
-      // campaign's heavy lantern at a glance.
+      // Sun lantern: broad golden lamp, eight rays, three bolts at once.
       const pulse = 0.12 + 0.05 * Math.sin(world.time * 2 + l.x);
       ctx.fillStyle = `rgba(253, 224, 71, ${pulse})`;
       ctx.beginPath();
@@ -487,8 +458,7 @@ function drawLanterns(ctx, world, view, light) {
       ctx.arc(l.x, l.y - 14, 5, 0, Math.PI * 2);
       ctx.fill();
     } else if (frost) {
-      // Frost lantern: a pale-blue chill aura, wider in the Dawn Star's
-      // light, over a crystal body on a dark post. It never fires bolts.
+      // Frost lantern: pale-blue chill aura, wider in the Dawn Star's light; never fires.
       const auraR = frostRadius(world.upgrades) * (l.lit ? 1.4 : 1);
       const pulse = 0.1 + 0.05 * Math.sin(world.time * 2 + l.x);
       ctx.fillStyle = `rgba(125, 211, 252, ${pulse})`;
@@ -520,8 +490,7 @@ function drawLanterns(ctx, world, view, light) {
       ctx.arc(l.x, l.y - 12, 3, 0, Math.PI * 2);
       ctx.fill();
     } else if (storm) {
-      // Storm lantern: a violet storm rod whose orb crackles — it never
-      // fires bolts, it strikes lightning, so it reads apart at a glance.
+      // Storm lantern: a violet storm rod — it strikes lightning, never bolts.
       const reach = world.lanterns.range * (l.lit ? 1.4 : 1);
       ctx.strokeStyle = l.lit ? 'rgba(196, 141, 255, 0.5)' : 'rgba(196, 141, 255, 0.12)';
       ctx.lineWidth = l.lit ? 2.5 : 1.5;
@@ -549,8 +518,6 @@ function drawLanterns(ctx, world, view, light) {
       ctx.fill();
     } else {
       glow(ctx, l.x, l.y - 12, 40 + (l.flash > 0 ? 14 : 0), 'rgba(253, 230, 138, 0.7)');
-      // Range ring: a lantern in the Dawn Star's light reaches 40% farther,
-      // and its ring shows it — bright gold instead of a whisper.
       const reach = world.lanterns.range * (l.lit ? 1.4 : 1);
       ctx.strokeStyle = l.lit
         ? 'rgba(253, 224, 71, 0.5)'
@@ -561,7 +528,6 @@ function drawLanterns(ctx, world, view, light) {
       ctx.beginPath();
       ctx.arc(l.x, l.y, reach, 0, Math.PI * 2);
       ctx.stroke();
-      // Warm pool of light on the ground beneath the lamp.
       const pool = ctx.createRadialGradient(l.x, l.y + 8, 2, l.x, l.y + 8, 46);
       pool.addColorStop(0, 'rgba(253, 230, 138, 0.22)');
       pool.addColorStop(1, 'rgba(253, 230, 138, 0)');
@@ -569,7 +535,6 @@ function drawLanterns(ctx, world, view, light) {
       ctx.beginPath();
       ctx.ellipse(l.x, l.y + 8, 46, 16, 0, 0, Math.PI * 2);
       ctx.fill();
-      // Post + lamp, the flame flickering with sim time.
       const flick = 1 + Math.sin(world.time * 6 + l.x) * 0.15;
       ctx.fillStyle = '#78350f';
       ctx.fillRect(l.x - 4, l.y - 6, 8, 16);
@@ -585,9 +550,7 @@ function drawLanterns(ctx, world, view, light) {
       ctx.fill();
     }
     if (l.lit) {
-      // A small starburst over a lit lantern: it fires 25% faster here
-      // (ember), or its chill reaches farther (frost) — gold vs cyan,
-      // violet for a storm rod.
+      // A small starburst over a lit lantern: gold for ember, cyan for frost, violet for storm.
       ctx.strokeStyle = frost ? 'rgba(125, 211, 252, 0.9)' : storm ? 'rgba(196, 141, 255, 0.9)' : 'rgba(253, 224, 71, 0.9)';
       ctx.lineWidth = 2;
       const sx = l.x;
@@ -600,8 +563,7 @@ function drawLanterns(ctx, world, view, light) {
       ctx.stroke();
     }
   }
-  // Bolts in flight: bright streaks with a fading tail. Spread bolts
-  // fly straight along their own direction; homing bolts chase a target.
+  // Bolts in flight: bright streaks with a fading tail.
   for (const b of world.lanterns.bolts) {
     const t = b.target;
     const dx = b.spread ? b.vx : t ? t.x - b.x : 0;
@@ -620,7 +582,6 @@ function drawLanterns(ctx, world, view, light) {
     ctx.stroke();
     glow(ctx, b.x, b.y, 11, 'rgba(254, 243, 199, 0.9)');
   }
-  // Lightning in flight: jagged violet strikes, gone in a blink.
   for (const z of world.lanterns.zaps || []) {
     ctx.strokeStyle = 'rgba(196, 141, 255, 0.95)';
     ctx.lineWidth = 2.5;
@@ -631,10 +592,7 @@ function drawLanterns(ctx, world, view, light) {
     ctx.stroke();
     glow(ctx, z.x2, z.y2, 12, 'rgba(196, 141, 255, 0.8)');
   }
-  // Placement ghost: follows the pointer while B is armed. 1 picks an
-  // ember lantern, 2 a frost one (once the draft card unlocked it), 3 a
-  // sun one (once the campaign map unlocked it), 4 a storm one (once the
-  // draft card unlocked it).
+  // Placement ghost: follows the pointer while B is armed. Keys 1/2/3/4 pick ember/frost/sun/storm.
   if (view && view.placeMode) {
     const p = view.pointer;
     const kind = { frost: 'frost', sun: 'sun', storm: 'storm' }[view.placeKind] || 'ember';
@@ -684,7 +642,6 @@ function drawLanterns(ctx, world, view, light) {
     ctx.arc(p.x, p.y - 12, 8, 0, Math.PI * 2);
     ctx.fill();
     text(ctx, label, p.x, p.y + 30, 13, ok ? (kind === 'frost' ? '#bae6fd' : kind === 'storm' ? '#ddd6fe' : '#fde68a') : '#fb7185', 'center');
-    // Keep the hint on-canvas when the pointer hugs an edge.
     const lx = Math.max(110, Math.min(FIELD.w - 110, p.x));
     text(ctx, 'PRESS 1 EMBER · 2 FROST · 3 SUN · 4 STORM', lx, p.y + 48, 11, PALETTE.dim, 'center');
   }
@@ -692,7 +649,7 @@ function drawLanterns(ctx, world, view, light) {
 
 function drawEmber(ctx, world) {
   const e = world.ember;
-  if (e.invuln > 0 && Math.floor(world.time * 12) % 2 === 0) return; // blink while invulnerable
+  if (e.invuln > 0 && Math.floor(world.time * 12) % 2 === 0) return;
   ctx.fillStyle = 'rgba(3, 6, 18, 0.5)';
   ctx.beginPath();
   ctx.ellipse(e.x, e.y + e.r + 4, e.r + 6, 5, 0, 0, Math.PI * 2);
@@ -713,7 +670,6 @@ function drawEmber(ctx, world) {
   ctx.beginPath();
   ctx.arc(e.x, e.y, e.r * 0.55, 0, Math.PI * 2);
   ctx.fill();
-  // Wings.
   ctx.fillStyle = 'rgba(255, 247, 230, 0.75)';
   const flap = Math.sin(world.time * 18) * 4;
   ctx.beginPath();
@@ -765,7 +721,6 @@ function drawHud(ctx, world) {
   ctx.fillRect(0, FIELD.h - 40, FIELD.w, 40);
   text(ctx, `SCORE ${world.score.toLocaleString('en-US')}`, 14, 24, 19, PALETTE.cream);
   text(ctx, `BEST ${Math.max(world.best, world.score).toLocaleString('en-US')}`, 14, 42, 11, PALETTE.dim);
-  // Hearts.
   let hx = FIELD.w - 14;
   const maxHearts = (DIFFICULTIES[world.difficulty] || DIFFICULTIES.normal).hearts + world.upgrades.maxHearts;
   for (let i = maxHearts - 1; i >= 0; i--) {
@@ -776,10 +731,6 @@ function drawHud(ctx, world) {
     ctx.fillText('♥', hx, 24);
     hx -= 22;
   }
-  // Wave + its sky phase, centred: every wave of the night has a name.
-  // Off-normal difficulties tag along, so a hard run reads as hard.
-  // The night of the campaign tags along too: night 2 is not night 1.
-  // Endless Night has no night count: the wave itself is the number.
   const diffTag =
     world.difficulty && world.difficulty !== 'normal'
       ? ` · ${DIFFICULTIES[world.difficulty].name}`
@@ -803,15 +754,11 @@ function drawHud(ctx, world) {
     ctx.arc(FIELD.w / 2 - 50 + i * 25, 36, 5, 0, Math.PI * 2);
     ctx.fill();
   }
-  // Dawn progress: how much of the night is behind the keeper. Outside
-  // the campaign the bar counts within a ten-wave cycle instead.
   ctx.fillStyle = 'rgba(255,255,255,0.18)';
   ctx.fillRect(FIELD.w / 2 - 50, 46, 100, 4);
   ctx.fillStyle = '#ffd166';
   const progress = world.mode === 'campaign' ? world.wave : ((world.wave - 1) % 10) + 1;
   ctx.fillRect(FIELD.w / 2 - 50, 46, 100 * (progress / 10), 4);
-  // A dark strip behind the y=58 line, so field sprites never muddy it:
-  // the storm warning, the boss call, and the objective all live there.
   ctx.fillStyle = 'rgba(7, 11, 29, 0.5)';
   ctx.fillRect(0, 50, FIELD.w, 18);
   if (world.stormTimer > 0) {
@@ -819,9 +766,6 @@ function drawHud(ctx, world) {
   } else if (world.boss) {
     text(ctx, `${(world.bossName || 'THE GLOOM HERALD').toUpperCase()} IS HERE`, FIELD.w / 2, 58, 14, '#fb7185', 'center');
   } else {
-    // This night's objective, with its live count — and the relic the
-    // keeper chose on the campaign map, when there is one. Endless Night
-    // has no objective: only the waves, and the best score to beat.
     if (world.mode === 'endless' || world.mode === 'bossrush') {
       text(
         ctx,
@@ -857,7 +801,6 @@ function drawHud(ctx, world) {
     ctx.lineWidth = 1;
     ctx.strokeRect(FIELD.w / 2 - bw / 2, 66, bw, 8);
   }
-  // Bottom bar: flare, combo, embers, lanterns, pickup.
   const flareCost = Math.max(30, TUNE.flareCost + world.upgrades.flareCost);
   const ready = world.flareEnergy >= flareCost;
   ctx.fillStyle = 'rgba(255,255,255,0.18)';
@@ -869,7 +812,6 @@ function drawHud(ctx, world) {
   if (world.combo >= 4) {
     text(ctx, `COMBO x${mult}`, 330, FIELD.h - 21, 15, '#ffd166');
   }
-  // Ember gem + lantern glyphs, so the economy reads at a glance.
   ctx.save();
   ctx.translate(458, FIELD.h - 21);
   ctx.rotate(Math.PI / 4);
@@ -905,9 +847,7 @@ function drawHud(ctx, world) {
   }
 }
 
-// Mode buttons on the title screen: the campaign, Endless Night, or
-// Boss Rush. Keys 4 / 5 / 6 or click. The caller keeps the choice in
-// view.mode.
+// Mode buttons on the title screen (keys 4/5/6 or click).
 export function modeRects(w, h) {
   const bw = 200;
   const bh = 36;
@@ -922,8 +862,7 @@ export function modeRects(w, h) {
   ];
 }
 
-// Difficulty buttons on the title screen: three in a row, keys 1 / 2 / 3
-// or click. The caller keeps the choice in view.difficulty.
+// Difficulty buttons on the title screen (keys 1/2/3 or click).
 export function difficultyRects(w, h) {
   const bw = 220;
   const bh = 40;
@@ -944,7 +883,6 @@ export function difficultyRects(w, h) {
 function drawTitle(ctx, world, view) {
   ctx.fillStyle = 'rgba(7, 11, 29, 0.72)';
   ctx.fillRect(0, 0, FIELD.w, FIELD.h);
-  // Warm halo behind the title + standing lanterns flanking the screen.
   const halo = ctx.createRadialGradient(FIELD.w / 2, 108, 10, FIELD.w / 2, 108, 300);
   halo.addColorStop(0, 'rgba(255, 179, 71, 0.20)');
   halo.addColorStop(1, 'rgba(255, 179, 71, 0)');
@@ -968,9 +906,6 @@ function drawTitle(ctx, world, view) {
     'Between waves: pick 1 of 3 upgrades — lanterns included',
   ];
   lines.forEach((line, i) => text(ctx, line, FIELD.w / 2, 286 + i * 21, 15, PALETTE.dim, 'center'));
-  // Mode row: three ways to play — the campaign of three nights, waves
-  // without end, or boss after boss. The run's second decision, before
-  // the first mote.
   const selMode = (view && view.mode) || 'campaign';
   const modes = [
     { id: 'campaign', key: '4', name: 'CAMPAIGN', tag: 'three nights, one dawn' },
@@ -988,7 +923,6 @@ function drawTitle(ctx, world, view) {
     text(ctx, `${rect.key} · ${m.name}`, rect.x + rect.w / 2, rect.y + 14, 13, active ? PALETTE.gold : PALETTE.dim, 'center');
     text(ctx, m.tag, rect.x + rect.w / 2, rect.y + 29, 11, PALETTE.dim, 'center');
   }
-  // Difficulty row: the run's first decision, before the first mote.
   const sel = (view && view.difficulty) || 'normal';
   for (const rect of difficultyRects(FIELD.w, FIELD.h)) {
     const diff = DIFFICULTIES[rect.id];
@@ -1005,8 +939,7 @@ function drawTitle(ctx, world, view) {
   ctx.globalAlpha = pulse;
   text(ctx, 'PRESS SPACE OR CLICK TO BEGIN', FIELD.w / 2, 530, 20, PALETTE.cream, 'center');
   ctx.globalAlpha = 1;
-  // Records: every mode keeps its own best score, shown here together —
-  // the title is where the three ways to play are compared.
+  // Records: every mode keeps its own best score, shown here together.
   const bests = (view && view.bests) || { campaign: 0, endless: 0, bossrush: 0 };
   const fmtBest = (v) => (v > 0 ? v.toLocaleString('en-US') : '—');
   text(
@@ -1018,12 +951,9 @@ function drawTitle(ctx, world, view) {
     PALETTE.dim,
     'center',
   );
-  // Lantern Mastery: the keeper's level and lifetime totals persist
-  // across runs — the title is where the long game is compared.
   text(ctx, masteryLine(view && view.mastery), FIELD.w / 2, 584, 13, PALETTE.gold, 'center');
 }
 
-// One small glyph per upgrade, so the draft reads at thumbnail size.
 function drawCardIcon(ctx, id, x, y) {
   ctx.save();
   ctx.translate(x, y);
@@ -1087,7 +1017,6 @@ function drawCardIcon(ctx, id, x, y) {
       ctx.fill();
     }
   } else if (id === 'frost-lantern') {
-    // A six-spoke snowflake in frost blue.
     ctx.strokeStyle = '#7dd3fc';
     for (let i = 0; i < 3; i++) {
       const a = (i / 3) * Math.PI;
@@ -1101,7 +1030,6 @@ function drawCardIcon(ctx, id, x, y) {
     ctx.arc(0, 0, 3.5, 0, Math.PI * 2);
     ctx.fill();
   } else if (id === 'storm-lantern') {
-    // A violet lightning bolt: the storm rod's own glyph.
     ctx.strokeStyle = '#c48dff';
     ctx.fillStyle = '#c48dff';
     ctx.beginPath();
@@ -1150,7 +1078,6 @@ function drawCardIcon(ctx, id, x, y) {
 function drawDraft(ctx, world) {
   ctx.fillStyle = 'rgba(7, 11, 29, 0.78)';
   ctx.fillRect(0, 0, FIELD.w, FIELD.h);
-  // Boss Rush drafts name the boss just downed and the one coming next.
   const rush = world.mode === 'bossrush';
   text(
     ctx,
@@ -1192,7 +1119,6 @@ function drawDraft(ctx, world) {
     drawCardIcon(ctx, upgrade.id, r.x + r.w / 2, r.y + 62);
     text(ctx, `${i + 1}`, r.x + 16, r.y + 20, 14, PALETTE.dim);
     text(ctx, upgrade.name, r.x + r.w / 2, r.y + 44, 17, PALETTE.cream, 'center');
-    // Wrap the description over two lines.
     const words = upgrade.desc.split(' ');
     let line = '';
     const lines = [];
@@ -1213,8 +1139,6 @@ function drawDraft(ctx, world) {
   text(ctx, `SCORE ${world.score.toLocaleString('en-US')}  ·  EMBERS ${world.embers}  ·  LANTERNS ${world.lanterns.list.length}/${world.lanterns.slots}`, FIELD.w / 2, FIELD.h - 50, 14, PALETTE.cream, 'center');
 }
 
-// Campaign-map card rows: the dawn shop (keys 1/2/3) and the relic row
-// (keys 4/5/6). The caller keeps the choice in the campaign object.
 export function mapShopRects(w, h) {
   const cw = 210;
   const ch = 100;
@@ -1240,7 +1164,6 @@ function drawMap(ctx, world, campaign) {
   text(ctx, `NIGHT ${world.night} HELD — ${camp.lastEarned || 0} DAWN SHARDS EARNED`, FIELD.w / 2, 62, 28, PALETTE.gold, 'center');
   text(ctx, `The campaign continues — spend shards, choose a relic, then enter Night ${camp.night}`, FIELD.w / 2, 92, 15, PALETTE.cream, 'center');
   text(ctx, `DAWN SHARDS ${camp.shards}  ·  CAMPAIGN SCORE ${camp.totalScore.toLocaleString('en-US')}`, FIELD.w / 2, 116, 14, PALETTE.gold, 'center');
-  // The night path: three nodes on one road, held / next / locked.
   ctx.strokeStyle = 'rgba(255, 209, 102, 0.4)';
   ctx.lineWidth = 3;
   ctx.beginPath();
@@ -1265,7 +1188,6 @@ function drawMap(ctx, world, campaign) {
     text(ctx, `NIGHT ${night.id} — ${night.name}`, x, y + 44, 14, held || next ? PALETTE.cream : PALETTE.dim, 'center');
     text(ctx, held ? 'HELD' : next ? 'NEXT' : night.short, x, y + 64, 12, held ? PALETTE.gold : next ? '#ffb347' : PALETTE.dim, 'center');
   });
-  // The dawn shop: permanent upgrades, bought with shards.
   text(ctx, 'DAWN UPGRADES — spend shards · keys 1 / 2 / 3 or click', FIELD.w / 2, 252, 14, PALETTE.cream, 'center');
   const shopRects = mapShopRects(FIELD.w, FIELD.h);
   META_SHOP.forEach((item, i) => {
@@ -1291,7 +1213,6 @@ function drawMap(ctx, world, campaign) {
       'center',
     );
   });
-  // The relic row: one free relic for the coming night.
   text(ctx, `CHOOSE A RELIC FOR NIGHT ${camp.night} — free · keys 4 / 5 / 6 or click`, FIELD.w / 2, 396, 14, PALETTE.cream, 'center');
   const relicRects = mapRelicRects(FIELD.w, FIELD.h);
   RELICS.forEach((relic, i) => {
@@ -1318,8 +1239,6 @@ function drawEnd(ctx, world, won, campaign, view) {
   const endless = world.mode === 'endless';
   const rush = world.mode === 'bossrush';
   if (won) {
-    // Dawn breaks: warm light rises from the horizon, and all five
-    // beacon rings stand lit across it.
     ctx.fillStyle = 'rgba(7, 11, 29, 0.72)';
     ctx.fillRect(0, 0, FIELD.w, FIELD.h);
     const dawn = ctx.createLinearGradient(0, FIELD.h * 0.45, 0, FIELD.h);
@@ -1397,7 +1316,6 @@ function drawEnd(ctx, world, won, campaign, view) {
     text(ctx, label, FIELD.w / 2 - 130, y, 14, PALETTE.dim, 'right');
     text(ctx, value, FIELD.w / 2 - 110, y, 14, PALETTE.cream);
   });
-  // What this run earned toward Lantern Mastery — the long game, banked.
   const gain = view && view.masteryGain;
   if (gain) {
     text(
@@ -1416,15 +1334,11 @@ function drawEnd(ctx, world, won, campaign, view) {
   ctx.globalAlpha = 1;
 }
 
-// The one draw call: field + entities + HUD, then the active screen.
 export function draw(ctx, world, screen, view, campaign) {
-  // The Dawn Star's state is pure sim state (wave + waveTime), so every
-  // frame of a run paints the same light in the same place.
   const light = lightState(world);
   ctx.save();
   if (world.shake > 0) {
-    // Jitter from sim time, never from the run's generator: rendering must
-    // not consume random draws, or the run would stop replaying identically.
+    // Jitter from sim time, never the run's generator: rendering must not consume random draws.
     const jx = Math.sin(world.time * 91.7) * world.shake * 7;
     const jy = Math.cos(world.time * 83.3) * world.shake * 7;
     ctx.translate(jx, jy);
@@ -1441,8 +1355,6 @@ export function draw(ctx, world, screen, view, campaign) {
   if (screen === 'play' || screen === 'pause' || screen === 'draft') drawHud(ctx, world);
   if (screen === 'play') {
     if (world.boss && world.boss.age < 2.4) {
-      // Boss intro: letterbox bars top and bottom, the field still visible
-      // between them. The Herald's arrival is the run's dramatic peak.
       const a = world.boss.age < 0.3 ? world.boss.age / 0.3 : world.boss.age > 1.9 ? (2.4 - world.boss.age) / 0.5 : 1;
       ctx.fillStyle = `rgba(20, 4, 10, ${0.82 * a})`;
       ctx.fillRect(0, 0, FIELD.w, 84);
@@ -1465,7 +1377,6 @@ export function draw(ctx, world, screen, view, campaign) {
       ctx.lineWidth = 8;
       ctx.strokeRect(4, 4, FIELD.w - 8, FIELD.h - 8);
     } else if (world.waveTime < 2.2) {
-      // Wave banner: the night's new name, fading as the wave opens.
       const a = Math.max(0, 1 - world.waveTime / 2.2);
       ctx.globalAlpha = a;
       text(ctx, world.mode === 'bossrush' ? `BOSS ${world.wave} — ${world.bossName || 'THE GLOOM HERALD'}` : `WAVE ${world.wave} — ${light.phase.name}`, FIELD.w / 2, 150, 30, PALETTE.gold, 'center');
@@ -1482,9 +1393,7 @@ export function draw(ctx, world, screen, view, campaign) {
     text(ctx, 'P to resume  ·  R to restart', FIELD.w / 2, 310, 17, PALETTE.dim, 'center');
   }
   if (screen === 'draft') drawDraft(ctx, world);
-  // A boss kill flashes big centre text over play and the draft that
-  // follows it — the run's loudest moment, drawn last so no overlay
-  // ever covers it.
+  // A boss kill flashes big centre text, drawn last so no overlay covers it.
   if ((screen === 'play' || screen === 'draft') && world.banner) {
     ctx.globalAlpha = Math.min(1, world.banner.t);
     text(ctx, world.banner.text, FIELD.w / 2, 240, 34, '#ffd166', 'center');

@@ -1,8 +1,4 @@
-// world.js — the whole run: Ember, motes, wisps, lanterns, waves, the boss.
-// Pure logic, no DOM, no audio, no clock: every step is a fixed 1/60 s
-// slice, and every random draw comes from the run's seeded generator.
-// That is what makes a run replayable, a shot stageable, and a balance
-// probe honest. The browser (main.js) owns screens and sound.
+// world.js — the whole run: Ember, motes, wisps, lanterns, waves, the boss. Pure logic, fixed 1/60 s steps, seeded RNG only — a run replays exactly.
 
 import { FIELD, TUNE, WISP_KINDS, PICKUPS, waveSpec, DIFFICULTIES } from './config.js';
 import { makeRng, pick, fieldPoint } from './random.js';
@@ -21,16 +17,7 @@ import { makeUpgrades, rollDraft, applyUpgrade } from './draft.js';
 import { lightState, inLight } from './daylight.js';
 import { makeCampaign, nightDef } from './campaign.js';
 
-// A brand-new run: Ember mid-field, wave 1 about to open. `difficulty`
-// is 'gentle' | 'normal' | 'harsh' and only changes hearts, wisp speed
-// and wisp count; the rules never change. `campaign` carries the nights
-// already held, the meta upgrades bought on the map, and the relic chosen
-// for this night; a fresh campaign starts night 1 with nothing. `mode`
-// is 'campaign' (three nights, then dawn) or 'endless' (waves without
-// end, no dawn, its own best score) or 'bossrush' (boss after boss,
-// each tougher than the last, its own best score). `masteryBonus` is
-// the keeper's Lantern Mastery starting embers (0 at level 1, so the
-// balance probes — which run at level 1 — see no bonus at all).
+// A brand-new run. `difficulty` changes hearts, wisp speed and count only; `campaign` carries nights held, meta upgrades and the relic; `mode` is campaign/endless/bossrush; `masteryBonus` is the keeper's starting embers (0 at level 1, so balance probes see no bonus).
 export function createWorld(seed, best = 0, difficulty = 'normal', campaign = null, mode = 'campaign', masteryBonus = 0) {
   const rng = makeRng(seed);
   const diff = DIFFICULTIES[difficulty] || DIFFICULTIES.normal;
@@ -78,9 +65,7 @@ export function createWorld(seed, best = 0, difficulty = 'normal', campaign = nu
     lanterns: makeLanterns(),
     upgrades: makeUpgrades(),
     draftOptions: null,
-    // Boss Rush opens with two lanterns' worth of embers: the first
-    // boss arrives at once, so the tower-defence loop must be live from
-    // the first seconds, not after a wave of saving.
+    // Boss Rush opens with two lanterns' worth of embers: the first boss arrives at once.
     embers: mode === 'bossrush' ? 90 + masteryBonus : camp.embersCarry + masteryBonus,
     score: 0,
     combo: 0,
@@ -132,7 +117,6 @@ export function effMoteEnergy(world) {
 function syncLanterns(world) {
   const u = world.upgrades;
   const l = world.lanterns;
-  // Draft slots plus the Lantern Rack meta upgrades bought on the map.
   l.slots = 2 + u.lanternSlots + (world.campaign ? world.campaign.meta.slots : 0);
   l.range = 175 + u.lanternRange;
   l.cooldown = 1.0 * u.lanternCooldown;
@@ -164,18 +148,14 @@ function spawnMote(world, storm) {
   });
 }
 
-// The boss's health: the night's boss in the campaign; in Endless Night
-// it grows 8 HP per boss wave (26, 34, 42, …), so later bosses are a
-// longer fight, not a repeat of the first. Boss Rush is the same ladder
-// per boss: 26, 34, 42, … — each boss one round tougher than the last.
+// Boss HP: the night's boss in campaign; in Endless it grows 8 HP per boss wave (26, 34, 42, …); Boss Rush the same ladder per boss.
 export function bossHp(world) {
   if (world.mode === 'endless') return 26 + (Math.floor(world.wave / 10) - 1) * 8;
   if (world.mode === 'bossrush') return 26 + (world.wave - 1) * 8;
   return nightDef(world.night).boss.hp;
 }
 
-// Which boss rules an endless boss wave: the Herald at wave 10, the
-// Hollow King at wave 20, the Night Itself from wave 30 on.
+// Which boss rules an endless boss wave: Herald at 10, Hollow King at 20, Night Itself from 30 on.
 function endlessBoss(world) {
   const n = Math.floor(world.wave / 10);
   if (n <= 1) return { name: 'THE GLOOM HERALD', spawn: 'drifter' };
@@ -183,10 +163,7 @@ function endlessBoss(world) {
   return { name: 'THE NIGHT ITSELF', spawn: 'splitter' };
 }
 
-// Boss Rush cycles the same three bosses, one per round: Herald, Hollow
-// King, Night Itself, then the cycle repeats, tougher each time. The
-// adds each boss spawns rotate one step per cycle, so a repeated boss
-// still brings a new fight.
+// Boss Rush cycles the same three bosses, one per round, tougher each time; adds rotate one step per cycle.
 export function rushBossAt(wave) {
   const n = ((wave - 1) % 3) + 1;
   const name = n === 1 ? 'THE GLOOM HERALD' : n === 2 ? 'THE HOLLOW KING' : 'THE NIGHT ITSELF';
@@ -233,9 +210,7 @@ function spawnWisp(world, kind) {
 }
 
 function startWave(world, wave) {
-  // Boss Rush: no ordinary wave — the boss IS the wave, plus two
-  // drifters to keep the field honest. The boss's own spawn trickle
-  // (stepWisps) supplies the rest of the fight.
+  // Boss Rush: no ordinary wave — the boss IS the wave, plus two drifters.
   if (world.mode === 'bossrush') {
     world.wave = wave;
     const b = rushBoss(world);
@@ -344,8 +319,7 @@ function banishWisp(world, wisp, source) {
   if (wisp.kind === 'boss') {
     world.stats.bosses++;
     world.banner = { text: `BOSS ${world.stats.bosses} DOWN!`, t: 2.4 };
-    // Boss Rush has its own unlock arc: downing the second boss opens
-    // sun lanterns for the rest of the rush.
+    // Boss Rush: downing the second boss opens sun lanterns for the rest of the rush.
     if (world.mode === 'bossrush' && world.stats.bosses === 2 && world.campaign) {
       world.campaign.meta.sun = 1;
       floater(world, wisp.x, wisp.y - 30, 'SUN LANTERNS UNLOCKED', '#fde047');
@@ -455,8 +429,7 @@ function stepWisps(world, dt) {
   const e = world.ember;
   const slow = world.slowTimer > 0 ? 0.5 : 1;
   const spec = waveSpec(world.wave, world.difficulty, world.night, world.mode === 'endless');
-  // Frost lanterns: a wisp in any frost aura moves slower; a lit frost
-  // lantern's aura reaches 40% farther, like an ember lantern's range.
+  // Frost lanterns: a wisp in any frost aura moves slower; a lit frost lantern's aura reaches 40% farther.
   const frostR = frostRadius(world.upgrades);
   const frostS = frostSlow(world.upgrades);
   const frostAuras = [];
@@ -509,8 +482,6 @@ function stepWisps(world, dt) {
     if (w.kind === 'boss') {
       w.spawnTimer -= dt;
       if (w.spawnTimer <= 0) {
-        // Boss Rush trickles adds slower than the campaign: the rush is
-        // boss after boss, and the adds are the spice, not the meal.
         w.spawnTimer = world.mode === 'bossrush' ? 6 : 4;
         const child = spawnWisp(world, world.bossSpawn || 'drifter');
         child.x = w.x;
@@ -544,9 +515,7 @@ function stepMotes(world, dt) {
     if (d < e.r + mote.r + 4) {
       mote.dead = true;
       const brave = nearWisp(world, mote.x, mote.y);
-      // A mote gathered in the Dawn Star's light pays +5: the light is
-      // worth chasing, not just standing in. The Golden Motes relic adds
-      // +5 score and +1 ember on top of that.
+      // A mote in the Dawn Star's light pays +5; Golden Motes adds +5 score and +1 ember.
       const sunlit = inLight(mote.x, mote.y, lightState(world));
       const mult = comboMult(world);
       const gain =
@@ -613,8 +582,7 @@ function stepCollisions(world) {
   world.pickups = world.pickups.filter((p) => !p.dead && p.life > 0);
 }
 
-// One fixed step of the run. `actions` are one-shot intents from the
-// caller: { kind: 'flare' } or { kind: 'place', x, y }.
+// One fixed step. `actions` are one-shot intents: { kind: 'flare' } or { kind: 'place', x, y }.
 export function step(world, dt, steer, dashHeld, actions) {
   if (world.phase !== 'play') return;
   world.time += dt;
@@ -637,9 +605,7 @@ export function step(world, dt, steer, dashHeld, actions) {
     if (action.kind === 'place') {
       const kind = { frost: 'frost', sun: 'sun', storm: 'storm' }[action.lanternKind] || 'ember';
       const cost = lanternCost(kind);
-      // Frost lanterns need the Frost Lantern draft card first; sun
-      // lanterns need the Sun Lantern meta upgrade from the campaign map;
-      // storm lanterns need the Storm Lantern draft card first.
+      // Frost needs the Frost Lantern card; sun needs the map's Sun Lantern; storm needs the Storm Lantern card.
       if (kind === 'frost' && (world.upgrades.frost || 0) < 1) {
         world.events.push('placefail');
       } else if (kind === 'sun' && (!world.campaign || world.campaign.meta.sun < 1)) {
@@ -713,16 +679,11 @@ export function step(world, dt, steer, dashHeld, actions) {
   }
   world.floaters = world.floaters.filter((f) => f.life > 0);
 
-  // Wave cleared: nothing left to spawn, nothing left alive.
   if (world.waveActive && world.spawnQueue.length === 0 && world.wisps.length === 0) {
     world.waveActive = false;
     if (world.mode !== 'campaign' || world.wave < 10) {
-      // No dawn in Endless Night or Boss Rush: the next wave — or the
-      // next boss — just opens, forever.
       openDraft(world);
     } else {
-      // The night is held: the last night wins the campaign, any earlier
-      // night opens the campaign map instead.
       world.phase = world.night >= 3 ? 'won' : 'nightwon';
       world.events.push('win');
     }

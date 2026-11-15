@@ -1,7 +1,4 @@
-// lanterns.js — placeable light-lanterns: the tower-defence layer.
-// A lantern watches its radius and fires at the nearest wisp inside
-// it. Lanterns cost embers, live until the run ends, and grow through
-// the draft (range, fire rate, damage, extra slots).
+// lanterns.js — placeable lanterns: the tower-defence layer. Lanterns cost embers, live until the run ends, grow through the draft.
 
 import { FIELD } from './config.js';
 
@@ -14,16 +11,13 @@ export function lanternCost(kind) {
   return kind === 'sun' ? SUN_COST : kind === 'storm' ? STORM_COST : LANTERN_COST;
 }
 
-// A storm lantern's chain: extra wisps its lightning jumps to after
-// the first, from the Storm Lantern card's takes (0 = locked).
+// A storm lantern's chain: extra wisps its lightning jumps to after the first (0 = locked).
 export function stormChain(upgrades) {
   const takes = upgrades.storm || 0;
   return takes > 0 ? 1 + takes : 0;
 }
 
-// A frost lantern's chill: how far its aura reaches and how much it slows
-// wisps inside it, from the Frost Lantern card's takes (0 = locked).
-// The first take unlocks; further takes widen and deepen the chill.
+// A frost lantern's chill: aura reach and slow, from the Frost Lantern card's takes (0 = locked).
 export function frostRadius(upgrades) {
   const takes = upgrades.frost || 0;
   return takes > 0 ? 120 + 30 * (takes - 1) : 0;
@@ -33,22 +27,15 @@ export function frostSlow(upgrades) {
   return takes > 0 ? Math.min(0.6, 0.35 + 0.1 * (takes - 1)) : 0;
 }
 
-// A fresh lantern set: two slots to start, no lanterns, no bolts or
-// lightning in flight.
 export function makeLanterns() {
   return { list: [], bolts: [], zaps: [], slots: 2, range: 175, cooldown: 1.0, damage: 1, stormChain: 0 };
 }
 
-// Whether the keeper may plant one more of a given kind right now.
 export function canPlaceKind(lanterns, embers, kind) {
   return lanterns.list.length < lanterns.slots && embers >= lanternCost(kind);
 }
 
-// Plant a lantern at (x, y). `kind` is 'ember' (fires light bolts) or
-// 'frost' (chills wisps nearby, never fires). Returns the lantern, or null
-// when placement is not allowed (no free slot, or too few embers). The
-// caller deducts the cost and checks the frost unlock; this function only
-// builds the lantern itself.
+// Plant a lantern at (x, y). Returns the lantern, or null when not allowed. The caller deducts cost and checks unlocks.
 export function placeLantern(lanterns, x, y, kind = 'ember') {
   if (lanterns.list.length >= lanterns.slots) return null;
   const lantern = { x, y, cool: 0.25, angle: -Math.PI / 2, flash: 0, kind };
@@ -74,19 +61,13 @@ function nearestWisp(lanterns, lantern, wisps, range) {
   return best;
 }
 
-// Step every lantern and every bolt in flight. `hurt(wisp, damage)` is the
-// world's damage hook: it applies the hit, scores it and spawns particles.
-// `light` is the Dawn Star's state ({x, y, radius}) or null: a lantern
-// standing in its light reaches 40% farther and fires 25% faster, so the
-// best ground moves with the star. `lantern.lit` records the buff for the
-// renderer; it is pure sim state, set only here.
+// Step every lantern and bolt. `hurt(wisp, damage)` is the world's damage hook.
+// `light` is the Dawn Star's state or null: a lantern in its light reaches 40% farther and fires 25% faster.
 export function updateLanterns(lanterns, wisps, dt, hurt, light) {
   for (const lantern of lanterns.list) {
     lantern.cool -= dt;
     if (lantern.flash > 0) lantern.flash -= dt;
-    // A frost lantern never fires: its chill is applied to wisps by the
-    // world (see stepWisps). It still counts as lit when it stands in the
-    // Dawn Star's light, so its aura visibly widens there.
+    // Frost lanterns never fire: their chill is applied to wisps by the world (see stepWisps).
     if (lantern.kind === 'frost') {
       lantern.lit =
         !!light &&
@@ -102,11 +83,9 @@ export function updateLanterns(lanterns, wisps, dt, hurt, light) {
         light.radius * light.radius;
     lantern.lit = lit;
     if (lantern.kind === 'storm') {
-      // Storm lanterns never fire bolts: on cooldown they strike the
-      // nearest wisp in range, then jump to the nearest wisp within
-      // 140 px of the last strike, up to the chain count. Each strike
-      // is a zap for the renderer; its kink is a pure function of its
-      // endpoints, so rendering never consumes a random draw.
+      // Storm lanterns strike the nearest wisp in range, then jump to the nearest wisp within
+      // 140 px of the last strike, up to the chain count. Each strike is a zap for the renderer;
+      // its kink is a pure function of its endpoints, so rendering never consumes a random draw.
       const range = lanterns.range * (lit ? 1.4 : 1);
       const target = nearestWisp(lanterns, lantern, wisps, range);
       if (target && lantern.cool <= 0) {
@@ -145,8 +124,7 @@ export function updateLanterns(lanterns, wisps, dt, hurt, light) {
         lantern.cool = lanterns.cooldown * (lit ? 0.8 : 1);
         lantern.flash = 0.12;
         if (lantern.kind === 'sun') {
-          // A sun lantern fires a three-bolt spread: straight shots, not
-          // homing, so the side bolts can catch what the centre misses.
+          // A sun lantern fires a three-bolt spread: straight shots, so the side bolts can catch what the centre misses.
           for (const off of [-0.35, 0, 0.35]) {
             const a = lantern.angle + off;
             lanterns.bolts.push({
@@ -177,8 +155,7 @@ export function updateLanterns(lanterns, wisps, dt, hurt, light) {
   for (const bolt of lanterns.bolts) {
     bolt.life -= dt;
     if (bolt.spread) {
-      // Straight-line spread bolt: flies its fixed direction and bursts
-      // on the first wisp it touches.
+      // Straight-line bolt: bursts on the first wisp it touches.
       bolt.x += bolt.vx * bolt.speed * dt;
       bolt.y += bolt.vy * bolt.speed * dt;
       if (

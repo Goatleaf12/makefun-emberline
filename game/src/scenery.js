@@ -1,8 +1,4 @@
-// scenery.js — the night itself: moon, hills, pines, mushrooms,
-// crystals, fireflies and falling ash. Pure decoration, seeded once
-// at module load and animated only by world.time, so a staged shot
-// renders identically every run. It never reads the run's generator
-// and never mutates the world.
+// scenery.js — the night itself: moon, hills, pines, mushrooms, crystals, fireflies, falling ash. Pure decoration, seeded once, animated only by world.time.
 
 import { FIELD } from './config.js';
 import { makeRng } from './random.js';
@@ -194,7 +190,6 @@ export function drawSceneryBack(ctx, world) {
     if (p.top) pine(ctx, p.x, 22, p.h * 0.6, p.w * 0.6, sky.hillsFar);
     else pine(ctx, p.x, FIELD.h + 4, p.h, p.w, '#080d20');
   }
-  // Glowing mushrooms: caps breathe with the night.
   for (const s of SHROOMS) {
     const glow = 0.5 + 0.3 * Math.sin(world.time * 1.6 + s.phase);
     const grad = ctx.createRadialGradient(s.x, s.y - 6, 1, s.x, s.y - 6, s.r * 3.4);
@@ -215,7 +210,6 @@ export function drawSceneryBack(ctx, world) {
     ctx.arc(s.x + s.r * 0.3, s.y - 6 - s.r * 0.2, 1.1, 0, Math.PI * 2);
     ctx.fill();
   }
-  // Light crystals: faceted shards with a bright rim.
   for (const c of CRYSTALS) {
     const pulse = 0.55 + 0.3 * Math.sin(world.time * 2 + c.phase);
     ctx.globalAlpha = pulse;
@@ -241,7 +235,6 @@ export function drawSceneryBack(ctx, world) {
 // --- front layer: drifting life + vignette -----------------------------------
 
 export function drawSceneryFront(ctx, world) {
-  // Fireflies wander the field on slow, looping paths.
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
   for (const f of FIREFLIES) {
@@ -259,7 +252,6 @@ export function drawSceneryFront(ctx, world) {
     ctx.fill();
   }
   ctx.restore();
-  // Warm ash drifts down through the air, forever.
   ctx.fillStyle = 'rgba(255, 179, 71, 0.5)';
   for (const m of ASH) {
     const y = (m.y + world.time * m.fall) % FIELD.h;
@@ -270,7 +262,6 @@ export function drawSceneryFront(ctx, world) {
     ctx.fill();
   }
   ctx.globalAlpha = 1;
-  // Vignette: the night closes in at the corners, so the lit middle pops.
   const vig = ctx.createRadialGradient(
     FIELD.w / 2, FIELD.h / 2, FIELD.h * 0.42,
     FIELD.w / 2, FIELD.h / 2, FIELD.h * 0.95,

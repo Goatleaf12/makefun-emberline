@@ -1,16 +1,11 @@
-// shots.js — deterministic scenes for the screenshots, played by an autopilot.
-// A shot is a real run of the real rules: the autopilot steers Ember, fires
-// the flare, plants lanterns and picks drafts, stepping the world in fixed
-// 1/60 s slices from a seed. Same kind + same seed renders the same frame
-// every time, which is what makes the screenshots honest renders.
+// shots.js — deterministic scenes for the screenshots, played by an autopilot. Same kind + same seed renders the same frame every time.
 
 import { createWorld, step, draftPick, effFlareCost, effFlareRadius } from './world.js';
 import { LANTERN_COST, SUN_COST, STORM_COST } from './lanterns.js';
 import { makeCampaign, completeNight, buyMeta, chooseRelic, META_PRIORITY } from './campaign.js';
 import { defaultMastery, masteryGain, applyMasteryGain, masteryLevel, masteryTitle } from './mastery.js';
 
-// Draft picks the autopilot prefers, best first: lantern growth early,
-// then survival, then damage.
+// Draft picks the autopilot prefers, best first.
 const DRAFT_PRIORITY = [
   'lantern-slot',
   'beam-long',
@@ -29,7 +24,9 @@ const DRAFT_PRIORITY = [
 ];
 
 // One autopilot decision: where to steer, whether to dash, what to do.
-function autopilot(world) {
+// opts.reserveStorm holds the third slot for the storm lantern: a keeper building storm saves the slot
+// instead of spending it on ember or frost, so the storm rod lands as soon as its card is taken.
+function autopilot(world, opts = {}) {
   const e = world.ember;
   let mote = null;
   let md = Infinity;
@@ -82,41 +79,45 @@ function autopilot(world) {
       if (dx * dx + dy * dy < 120 * 120) clear = false;
     }
     if (clear) {
-      // Second lantern frost (once its card is taken), third storm
-      // (once its card is taken), fourth sun (once the map unlocks it).
+      // Second lantern frost (once its card is taken), third storm (once taken), fourth sun (once the map unlocks it).
+      // A storm build places the rod before frost: the rod is the point of the run.
       const hasFrost = world.lanterns.list.some((l) => l.kind === 'frost');
       const hasStorm = world.lanterns.list.some((l) => l.kind === 'storm');
       const hasSun = world.lanterns.list.some((l) => l.kind === 'sun');
       const n = world.lanterns.list.length;
+      const stormFirst = opts.reserveStorm && (world.upgrades.storm || 0) >= 1 && !hasStorm && n >= 2;
       const lanternKind =
-        (world.upgrades.frost || 0) >= 1 && !hasFrost && n >= 1
-          ? 'frost'
-          : (world.upgrades.storm || 0) >= 1 && !hasStorm && n >= 2
-            ? 'storm'
-            : (world.campaign?.meta.sun || 0) >= 1 && !hasSun && n >= 2
-              ? 'sun'
-              : 'ember';
+        stormFirst
+          ? 'storm'
+          : (world.upgrades.frost || 0) >= 1 && !hasFrost && n >= 1
+            ? 'frost'
+            : (world.upgrades.storm || 0) >= 1 && !hasStorm && n >= 2
+              ? 'storm'
+              : (world.campaign?.meta.sun || 0) >= 1 && !hasSun && n >= 2
+                ? 'sun'
+                : 'ember';
       const cost = lanternKind === 'sun' ? SUN_COST : lanternKind === 'storm' ? STORM_COST : LANTERN_COST;
-      if (world.embers >= cost) actions.push({ kind: 'place', x: px, y: py, lanternKind });
+      const reserving = opts.reserveStorm && world.stormUnlocked && (world.upgrades.storm || 0) < 1 && n >= 2;
+      if (world.embers >= cost && !reserving) actions.push({ kind: 'place', x: px, y: py, lanternKind });
     }
   }
   return { steer, dash, actions };
 }
 
-// Play the run forward up to maxSteps fixed steps. Drafts are picked by
-// priority unless stopAtDraft freezes on the cards instead.
+// Play the run forward up to maxSteps fixed steps. Drafts are picked by priority unless stopAtDraft freezes on the cards.
 export function playSteps(world, maxSteps, opts = {}) {
   let steps = 0;
   while (steps < maxSteps && world.phase === 'play') {
-    const { steer, dash, actions } = autopilot(world);
+    const { steer, dash, actions } = autopilot(world, opts);
     step(world, 1 / 60, steer, dash, actions);
     steps++;
     if (world.phase === 'draft') {
       if (opts.stopAtDraft) break;
       let idx = 0;
       let best = 999;
+      const priority = opts.priority || DRAFT_PRIORITY;
       world.draftOptions.forEach((u, i) => {
-        const p = DRAFT_PRIORITY.indexOf(u.id);
+        const p = priority.indexOf(u.id);
         if (p >= 0 && p < best) {
           best = p;
           idx = i;
@@ -128,13 +129,7 @@ export function playSteps(world, maxSteps, opts = {}) {
   return steps;
 }
 
-// Play a whole campaign with the autopilot: night 1, map buys, night 2,
-// map buys, night 3. Between nights the autopilot buys meta upgrades in
-// priority order and picks the Twin Flames relic. Returns { campaign,
-// world, screen } where screen is 'won' (campaign complete), 'lost' (a
-// night fell), or 'map' when stopAfterNight freezes on the map after that
-// night. Every night starts from a fixed seed (seed + night * 1000), so a
-// campaign replays identically.
+// Play a whole campaign: night 1, map buys, night 2, map buys, night 3. Returns { campaign, world, screen } ('won' | 'lost' | 'map'). Every night starts from a fixed seed (seed + night * 1000).
 export function playCampaign(seed, difficulty = 'normal', opts = {}) {
   const campaign = makeCampaign();
   let world = createWorld(seed, 0, difficulty, campaign);
@@ -142,7 +137,6 @@ export function playCampaign(seed, difficulty = 'normal', opts = {}) {
     playSteps(world, 60 * 60 * 12);
     if (world.phase === 'lost') return { campaign, world, screen: 'lost' };
     if (world.phase === 'won') {
-      // The last night: settle it too, so the campaign total includes it.
       completeNight(campaign, world);
       return { campaign, world, screen: 'won' };
     }
@@ -156,9 +150,7 @@ export function playCampaign(seed, difficulty = 'normal', opts = {}) {
   return { campaign, world, screen: 'won' };
 }
 
-// Play Endless Night until the target wave (or the run falls). Returns
-// the world, still in 'play' when it held that far. The autopilot plays
-// it exactly like a campaign night: same steering, same drafts.
+// Play Endless Night until the target wave (or the run falls).
 export function playEndless(seed, difficulty = 'normal', targetWave = 7) {
   const world = createWorld(seed, 0, difficulty, null, 'endless');
   let guard = 0;
@@ -169,8 +161,7 @@ export function playEndless(seed, difficulty = 'normal', targetWave = 7) {
   return world;
 }
 
-// Stage one named scene. Returns the world, the screen to paint, the
-// campaign, and the view (placement ghost) the render needs.
+// Stage one named scene. Returns the world, screen, campaign, and view the render needs.
 export function stageShot(kind, seed, difficulty = 'normal') {
   const world = createWorld(seed, 0, difficulty);
   const view = { placeMode: false, pointer: { x: 480, y: 300 } };
@@ -178,9 +169,7 @@ export function stageShot(kind, seed, difficulty = 'normal') {
     return { world, screen: 'title', view, campaign: world.campaign };
   }
   if (kind === 'endless') {
-    // Normal difficulty: the first seed whose endless run holds to wave 7
-    // stages the mode in full flight — high wave, lanterns out, the HUD
-    // reading ENDLESS NIGHT. Gentle is the fallback, never a loss.
+    // First seed whose endless run holds to wave 7; gentle is the fallback, never a loss.
     for (let s = seed; s < seed + 24; s++) {
       const w = playEndless(s, 'normal', 7);
       if (w.phase === 'play' && w.wave >= 7) return { world: w, screen: 'play', view, campaign: w.campaign };
@@ -189,8 +178,7 @@ export function stageShot(kind, seed, difficulty = 'normal') {
     return { world: w, screen: 'play', view, campaign: w.campaign };
   }
   if (kind === 'map') {
-    // Gentle, seed search: the first seed whose night 1 is held stages
-    // the campaign map, shards and shop visible.
+    // First seed whose night 1 is held stages the map, shards and shop visible.
     for (let s = seed; s < seed + 24; s++) {
       const run = playCampaign(s, 'gentle', { stopAfterNight: 1 });
       if (run.screen === 'map') return { world: run.world, screen: 'map', view, campaign: run.campaign };
@@ -199,8 +187,7 @@ export function stageShot(kind, seed, difficulty = 'normal') {
     return { world: run.world, screen: 'play', view, campaign: run.campaign };
   }
   if (kind === 'night2') {
-    // Normal difficulty: hold night 1, then play night 2 partway — gloom
-    // wisps, a new objective, and the campaign's harder mix on screen.
+    // Hold night 1, then play night 2 partway — gloom wisps, new objective, harder mix.
     for (let s = seed; s < seed + 24; s++) {
       const run = playCampaign(s, 'normal', { stopAfterNight: 1 });
       if (run.screen === 'map') {
@@ -227,9 +214,7 @@ export function stageShot(kind, seed, difficulty = 'normal') {
     return { world, screen: 'play', view, campaign: world.campaign };
   }
   if (kind === 'end') {
-    // Gentle, seed search: the first seed whose whole campaign is won
-    // stages the campaign win screen. A full campaign is three nights,
-    // so the search may take a while — it is deterministic.
+    // First seed whose whole campaign is won stages the win screen.
     for (let s = seed; s < seed + 24; s++) {
       const run = playCampaign(s, 'gentle');
       if (run.screen === 'won') return { world: run.world, screen: 'won', view, campaign: run.campaign };
@@ -238,8 +223,7 @@ export function stageShot(kind, seed, difficulty = 'normal') {
     return { world: run.world, screen: run.screen, view, campaign: run.campaign };
   }
   if (kind === 'rushdraft') {
-    // Boss Rush: beat boss 1, then freeze on the inter-boss draft — the
-    // "BOSS 1 DOWN" header, the next-boss preview, and the three cards.
+    // Beat boss 1, freeze on the inter-boss draft: "BOSS 1 DOWN" header, next-boss preview, three cards.
     for (let s = seed; s < seed + 24; s++) {
       const w = createWorld(s, 0, 'normal', null, 'bossrush');
       playSteps(w, 60 * 60 * 12, { stopAtDraft: true });
@@ -250,11 +234,8 @@ export function stageShot(kind, seed, difficulty = 'normal') {
     return { world: w, screen: w.phase === 'draft' ? 'draft' : 'play', view, campaign: w.campaign };
   }
   if (kind === 'bossrush') {
-    // Boss Rush: beat boss 1, take the inter-boss draft, then freeze on
-    // boss 2 just AFTER its intro splash ends (age 3.5 > 2.4), so the
-    // letterbox bars are gone and the full HUD — mode line, score,
-    // hearts, boss health bar, flare, lanterns — reads clean while the
-    // boss is still mid-fight.
+    // Beat boss 1, take the draft, freeze on boss 2 just AFTER its intro splash ends (age 3.5 > 2.4),
+    // so the letterbox bars are gone and the full HUD reads clean while the boss is still mid-fight.
     for (let s = seed; s < seed + 24; s++) {
       const w = createWorld(s, 0, 'normal', null, 'bossrush');
       let guard = 0;
@@ -268,10 +249,45 @@ export function stageShot(kind, seed, difficulty = 'normal') {
     playSteps(w, 60 * 60);
     return { world: w, screen: 'play', view, campaign: w.campaign };
   }
+  if (kind === 'storm') {
+    // Boss Rush as a Mastery LV 2 keeper (25 XP, WARDEN): storm unlocked, +1 starting ember.
+    // A real LV 2 keeper chasing the storm build picks the storm card first, so the autopilot does too —
+    // the cards are still rolled by the game's own draft, only the choice changes.
+    // Freeze on boss 3 (Night Itself, 42 HP) just after its intro, with a storm lantern out and lightning mid-strike.
+    view.mastery = { xp: 25, runs: 2, wins: 0, bosses: 1 };
+    const STORM_PRIORITY = ['storm-lantern', 'lantern-slot', 'frost-lantern', 'beam-long', 'wick-rapid', 'heart', 'motes-rich', 'flare-wide', 'wick-heavy', 'wings-swift', 'magnet-strong', 'combo-long', 'dash-swift', 'flare-kindled'];
+    const STORM_OPTS = { priority: STORM_PRIORITY, reserveStorm: true };
+    const hasStorm = (w) => w.lanterns.list.some((l) => l.kind === 'storm');
+    for (let s = seed; s < seed + 24; s++) {
+      const w = createWorld(s, 0, 'normal', null, 'bossrush', 1);
+      w.stormUnlocked = true;
+      let guard = 0;
+      let frozen = false;
+      while (guard++ < 60 * 60 * 14 && w.phase === 'play') {
+        playSteps(w, 1, STORM_OPTS);
+        if (w.wave >= 3 && w.boss && w.boss.age >= 3.5 && hasStorm(w) && w.lanterns.zaps.length > 0) { frozen = true; break; }
+      }
+      if (frozen) return { world: w, screen: 'play', view, campaign: w.campaign };
+    }
+    // Fallback: boss 3 with a storm lantern out (no lightning in this exact frame).
+    for (let s = seed; s < seed + 24; s++) {
+      const w = createWorld(s, 0, 'normal', null, 'bossrush', 1);
+      w.stormUnlocked = true;
+      let guard = 0;
+      let frozen = false;
+      while (guard++ < 60 * 60 * 14 && w.phase === 'play') {
+        playSteps(w, 1, STORM_OPTS);
+        if (w.wave >= 3 && w.boss && w.boss.age >= 3.5 && hasStorm(w)) { frozen = true; break; }
+      }
+      if (frozen) return { world: w, screen: 'play', view, campaign: w.campaign };
+    }
+    const w = createWorld(seed, 0, 'normal', null, 'bossrush', 1);
+    w.stormUnlocked = true;
+    playSteps(w, 60 * 60);
+    return { world: w, screen: 'play', view, campaign: w.campaign };
+  }
   if (kind === 'boss') {
-    // Play until the Gloom Herald appears on wave 10, then hold about a
-    // second into its intro splash. One-second chunks keep the staging
-    // deterministic: the same seed always freezes the same frame.
+    // Play until the Gloom Herald appears on wave 10, hold ~1 s into its intro splash.
     let guard = 0;
     while (guard++ < 60 * 60 * 14) {
       if (world.phase !== 'play') break;
@@ -281,10 +297,7 @@ export function stageShot(kind, seed, difficulty = 'normal') {
     return { world, screen: 'play', view, campaign: world.campaign };
   }
   if (kind === 'lost') {
-    // Normal difficulty: the first seed whose campaign night falls
-    // stages the defeat screen — score, stats, restart, and the
-    // Lantern Mastery the run earned. Harsh is the fallback: almost
-    // every seed falls on night 1 there.
+    // First seed whose campaign night falls stages the defeat screen. Harsh is the fallback.
     const stageLost = (run) => {
       const gain = masteryGain(run.world, false);
       view.mastery = applyMasteryGain(defaultMastery(), gain, false, run.world.stats.bosses);

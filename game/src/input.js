@@ -9,7 +9,7 @@
 export function makeInput(canvas) {
   const input = {
     keys: new Set(),
-    queue: [], // one-shot actions: 'confirm' | 'flare' | 'place' | 'pause' | 'restart' | 'mute' | 'draft1' | 'draft2' | 'draft3'
+    queue: [], // one-shot actions: 'confirm' | 'flare' | 'place' | 'pause' | 'restart' | 'mute' | 'draft1'..'draft6'
     pointer: { x: 0, y: 0, down: false, active: false },
     placeMode: false, // B toggles lantern placement; click plants, right-click/Esc cancels
   };
@@ -26,9 +26,15 @@ export function makeInput(canvas) {
     Digit1: 'draft1',
     Digit2: 'draft2',
     Digit3: 'draft3',
+    Digit4: 'draft4',
+    Digit5: 'draft5',
+    Digit6: 'draft6',
     Numpad1: 'draft1',
     Numpad2: 'draft2',
     Numpad3: 'draft3',
+    Numpad4: 'draft4',
+    Numpad5: 'draft5',
+    Numpad6: 'draft6',
   };
 
   function toLocal(e) {

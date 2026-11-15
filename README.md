@@ -6,6 +6,8 @@
 
 LANTERNWARD — tower defense where the light itself moves every wave: an original top-down arcade tower-defence game where Ember the firefly gathers light motes, plants fighting lanterns, dodges shadow wisps, and lights five beacon rings before dawn across 10 waves — ending in a boss wave, the Gloom Herald. Every wave the Dawn Star moves to a new sky, and lanterns standing in its light reach 40% farther and fire 25% faster.
 
+**A campaign of three nights (new in v11):** one night is ten waves; a campaign is three nights in a row, each with its own objective and its own boss — Night 1 First Light (light all 5 rings, the Gloom Herald), Night 2 The Long Dark (banish 40 wisps, the Hollow King, gloom wisps join), Night 3 Dawn's Edge (gather 120 motes, the Night Itself, spark wisps join). Between nights the campaign map opens: spend Dawn Shards (earned from rings, objectives and bosses) on permanent upgrades — an extra heart, a lantern slot, or the Sun Lantern — and choose one Dawn Relic for the coming night (Twin Flames, Golden Motes, or Stout Heart). Draft upgrades carry across nights, lanterns on the field do not, and half the embers carry over — so the build grows across the campaign while the nights get harder.
+
 ## How to play
 
 - **Steer** with WASD / arrow keys, or hold the mouse and Ember follows
@@ -43,7 +45,16 @@ LANTERNWARD — tower defense where the light itself moves every wave: an origin
   per wave).
 - **Boss wave 10:** the Gloom Herald — a slow, tough wisp (26 HP) that
   spawns drifters every few seconds and drops a shower of motes when it
-  falls.
+  falls. Nights 2 and 3 end in harder bosses: the Hollow King (32 HP,
+  spawns chasers) and the Night Itself (40 HP, spawns splitters).
+- **Sun lanterns (new in v11):** buy the Sun Lantern on the campaign map
+  and you may plant a third kind of lantern — a broad golden lamp that
+  fires a three-bolt spread for 60 embers. In place mode press **3** for
+  sun (1 ember, 2 frost).
+- **Campaign map (new in v11):** hold a night and the map opens — three
+  nights on one road (held / next / locked), the dawn shop (Ember Heart
+  4 shards, Lantern Rack 5, Sun Lantern 6), and a free relic for the
+  coming night (keys 4 / 5 / 6 or click). Space enters the next night.
 - **Pickups** appear on the field — Aegis Shield (blocks one hit), Mote
   Magnet (pulls motes to you), Slowlight (wisps drift slowly for 6 s).
   You hold one at a time; taking a new one replaces the old.
@@ -64,6 +75,8 @@ LANTERNWARD — tower defense where the light itself moves every wave: an origin
 **Win:** survive all 10 waves and light all 5 beacon rings — dawn breaks.
 **Lose:** all 4 hearts gone. Every 3rd wave (3, 6, 9) is an Ember Storm:
 a dense rain of motes with a bonus timer.
+**Campaign win:** hold all three nights — First Light, the Long Dark and
+Dawn's Edge — and dawn breaks for good.
 
 ## Run it
 
@@ -75,7 +88,7 @@ node serve.ts
 No build step, no libraries, no network requests: vanilla JS + Canvas 2D
 with synthesised WebAudio sound, all art drawn procedurally.
 
-Deterministic scenes for screenshots: `/?shot=title|play|action|draft|end|boss&seed=N`.
+Deterministic scenes for screenshots: `/?shot=title|play|action|draft|end|boss|map|night2&seed=N`.
 
 ## Layout
 
@@ -86,6 +99,8 @@ Deterministic scenes for screenshots: `/?shot=title|play|action|draft|end|boss&s
 - `game/src/input.js` — keyboard + pointer state
 - `game/src/daylight.js` — the wandering light: one sky per wave, the
   Dawn Star's drift, the lit pool, sunlit motes (new in v5)
+- `game/src/campaign.js` — the campaign of three nights: night defs,
+  dawn shards, the meta shop, dawn relics (new in v11)
 - `game/src/world.js` — entities, waves, collisions, scoring
 - `game/src/lanterns.js` — placeable fighting lanterns (slots, bolts, range)
 - `game/src/draft.js` — the between-wave upgrade draft (12 upgrades, 3 cards)

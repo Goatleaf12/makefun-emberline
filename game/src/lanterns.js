@@ -6,7 +6,15 @@
 // between-wave draft (range, fire rate, damage, extra slots). Placement is
 // the run's central decision: where to stand the light, and when to spend.
 
-export const LANTERN_COST = 45; // embers per lantern, either kind
+import { FIELD } from './config.js';
+
+export const LANTERN_COST = 45; // embers per lantern, ember or frost kind
+export const SUN_COST = 60; // embers per sun lantern: it fires three bolts
+
+// The cost of planting one lantern of a kind.
+export function lanternCost(kind) {
+  return kind === 'sun' ? SUN_COST : LANTERN_COST;
+}
 
 // A frost lantern's chill: how far its aura reaches and how much it slows
 // wisps inside it, from the Frost Lantern card's takes (0 = locked).
@@ -25,14 +33,9 @@ export function makeLanterns() {
   return { list: [], bolts: [], slots: 2, range: 175, cooldown: 1.0, damage: 1 };
 }
 
-// How many lanterns stand right now.
-export function lanternCount(lanterns) {
-  return lanterns.list.length;
-}
-
-// Whether the keeper may plant one more right now.
-export function canPlace(lanterns, embers) {
-  return lanterns.list.length < lanterns.slots && embers >= LANTERN_COST;
+// Whether the keeper may plant one more of a given kind right now.
+export function canPlaceKind(lanterns, embers, kind) {
+  return lanterns.list.length < lanterns.slots && embers >= lanternCost(kind);
 }
 
 // Plant a lantern at (x, y). `kind` is 'ember' (fires light bolts) or
@@ -99,19 +102,65 @@ export function updateLanterns(lanterns, wisps, dt, hurt, light) {
       if (lantern.cool <= 0) {
         lantern.cool = lanterns.cooldown * (lit ? 0.8 : 1);
         lantern.flash = 0.12;
-        lanterns.bolts.push({
-          x: lantern.x,
-          y: lantern.y - 14,
-          target,
-          speed: 520,
-          damage: lanterns.damage,
-          life: 1.2,
-        });
+        if (lantern.kind === 'sun') {
+          // A sun lantern fires a three-bolt spread: straight shots, not
+          // homing, so the side bolts can catch what the centre misses.
+          for (const off of [-0.35, 0, 0.35]) {
+            const a = lantern.angle + off;
+            lanterns.bolts.push({
+              x: lantern.x,
+              y: lantern.y - 14,
+              target,
+              speed: 520,
+              damage: lanterns.damage,
+              life: 1.2,
+              spread: true,
+              vx: Math.cos(a),
+              vy: Math.sin(a),
+            });
+          }
+        } else {
+          lanterns.bolts.push({
+            x: lantern.x,
+            y: lantern.y - 14,
+            target,
+            speed: 520,
+            damage: lanterns.damage,
+            life: 1.2,
+          });
+        }
       }
     }
   }
   for (const bolt of lanterns.bolts) {
     bolt.life -= dt;
+    if (bolt.spread) {
+      // Straight-line spread bolt: flies its fixed direction and bursts
+      // on the first wisp it touches.
+      bolt.x += bolt.vx * bolt.speed * dt;
+      bolt.y += bolt.vy * bolt.speed * dt;
+      if (
+        bolt.life <= 0 ||
+        bolt.x < 0 ||
+        bolt.x > FIELD.w ||
+        bolt.y < 0 ||
+        bolt.y > FIELD.h
+      ) {
+        bolt.dead = true;
+        continue;
+      }
+      for (const w of wisps) {
+        if (w.dead) continue;
+        const dx = w.x - bolt.x;
+        const dy = w.y - bolt.y;
+        if (dx * dx + dy * dy < (w.r + 10) * (w.r + 10)) {
+          bolt.dead = true;
+          hurt(w, bolt.damage, 'bolt');
+          break;
+        }
+      }
+      continue;
+    }
     const t = bolt.target;
     if (!t || t.dead || bolt.life <= 0) {
       bolt.dead = true;

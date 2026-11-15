@@ -63,17 +63,23 @@ export const DIFFICULTY_IDS = ['gentle', 'normal', 'harsh'];
 
 // What one wave throws at the keeper. Counts grow, speed grows, and new
 // kinds join as the night deepens. Wave 10 is the boss wave: the Herald
-// plus a slow trickle of drifters while it lives.
-export function waveSpec(wave, difficulty = 'normal') {
+// plus a slow trickle of drifters while it lives. Later campaign nights
+// are harder: night 2 adds gloom wisps and a little more of everything,
+// night 3 adds sparks and more still.
+export function waveSpec(wave, difficulty = 'normal', night = 1) {
   const kinds = ['drifter'];
   if (wave >= 2) kinds.push('chaser');
   if (wave >= 3) kinds.push('splitter');
   if (wave >= 4) kinds.push('swift');
   if (wave >= 5) kinds.push('bulwark');
+  if (night >= 2 && wave >= 2) kinds.push('gloom');
+  if (night >= 3 && wave >= 3) kinds.push('spark');
   const diff = DIFFICULTIES[difficulty] || DIFFICULTIES.normal;
+  const nightCount = night >= 3 ? 1 : 0;
+  const nightSpeed = night >= 3 ? 1.06 : night === 2 ? 1.03 : 1;
   return {
-    count: Math.max(3, (wave === 1 ? 5 : 5 + wave * 2) + diff.count),
-    speed: (wave === 1 ? 44 : 48 + wave * 7) * diff.speed,
+    count: Math.max(3, (wave === 1 ? 5 : 5 + wave * 2) + diff.count + nightCount),
+    speed: (wave === 1 ? 44 : 48 + wave * 7) * diff.speed * nightSpeed,
     kinds,
     storm: TUNE.stormWaves.includes(wave),
     boss: wave === 10,
@@ -87,6 +93,8 @@ export const WISP_KINDS = {
   splitter: { hp: 2, speed: 0.95, bonus: 25, radius: 16, color: PALETTE.wispSplitter },
   swift: { hp: 1, speed: 1.55, bonus: 5, radius: 12, color: PALETTE.wispSwift },
   bulwark: { hp: 3, speed: 0.7, bonus: 30, radius: 18, color: '#94a3b8' },
+  gloom: { hp: 4, speed: 0.6, bonus: 40, radius: 20, color: '#8b7cc8' },
+  spark: { hp: 1, speed: 1.9, bonus: 10, radius: 10, color: '#facc15' },
   boss: { hp: 26, speed: 0.55, bonus: 500, radius: 34, color: PALETTE.wispBoss },
 };
 

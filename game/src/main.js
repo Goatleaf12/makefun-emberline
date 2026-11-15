@@ -8,11 +8,12 @@
 
 import { FIELD } from './config.js';
 import { createWorld, step, draftPick } from './world.js';
-import { draw, difficultyRects } from './render.js';
+import { draw, difficultyRects, mapShopRects, mapRelicRects } from './render.js';
 import { makeInput } from './input.js';
 import { makeAudio } from './audio.js';
 import { draftHit, draftCardRects } from './draft.js';
 import { stageShot } from './shots.js';
+import { makeCampaign, completeNight, buyMeta, chooseRelic, META_SHOP, RELICS } from './campaign.js';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -42,12 +43,14 @@ const audio = makeAudio();
 const input = makeInput(canvas);
 
 let world = null;
-let screen = 'title'; // 'title' | 'play' | 'pause' | 'draft' | 'won' | 'lost'
+let campaign = makeCampaign();
+let screen = 'title'; // 'title' | 'play' | 'pause' | 'draft' | 'map' | 'won' | 'lost'
 let view = { placeMode: false, placeKind: 'ember', difficulty: 'normal', pointer: { x: 480, y: 300 } };
 let pending = []; // one-shot world actions for the next fixed step
 
-function newRun(seed, difficulty = 'normal') {
-  world = createWorld(seed, loadBest(), difficulty);
+function newRun(seed, difficulty = 'normal', camp = null) {
+  if (camp) campaign = camp;
+  world = createWorld(seed, loadBest(), difficulty, campaign);
   screen = 'title';
   view = { placeMode: false, placeKind: 'ember', difficulty, pointer: { x: 480, y: 300 } };
   pending = [];
@@ -55,12 +58,23 @@ function newRun(seed, difficulty = 'normal') {
 }
 
 function startPlaying() {
-  // The run starts with the difficulty chosen on the title screen; the
-  // title world's seed was only its animated backdrop.
+  // A fresh campaign: three nights, no shards, no relic. The run starts
+  // with the difficulty chosen on the title screen; the title world's
+  // seed was only its animated backdrop.
   audio.unlock();
-  newRun((Math.random() * 1e9) | 0, view.difficulty || 'normal');
+  campaign = makeCampaign();
+  newRun((Math.random() * 1e9) | 0, view.difficulty || 'normal', campaign);
   screen = 'play';
-  setStatus('Wave 1 — gather motes, plant lanterns with B, hold the light.');
+  setStatus('Night 1 — gather motes, plant lanterns with B, hold the light.');
+}
+
+function startNight() {
+  // The next night of the same campaign: the map's shards, meta upgrades
+  // and chosen relic all carry in.
+  audio.unlock();
+  newRun((Math.random() * 1e9) | 0, world ? world.difficulty : 'normal', campaign);
+  screen = 'play';
+  setStatus(`Night ${world.night} — the night deepens. Hold the light.`);
 }
 
 function playEventSounds() {
@@ -84,14 +98,22 @@ function syncPhase() {
   if (world.phase === 'draft' && screen === 'play') {
     screen = 'draft';
     setStatus(`Wave ${world.wave} cleared — choose an upgrade.`);
+  } else if (world.phase === 'nightwon' && screen === 'play') {
+    // The night is held: settle it into the campaign, then open the map.
+    const earned = completeNight(campaign, world);
+    screen = 'map';
+    setStatus(`Night ${world.night} held — ${earned} dawn shards earned. Spend them, choose a relic.`);
   } else if (world.phase === 'won' && screen !== 'won') {
+    // Settle the last night through the same path as the others, so the
+    // campaign total on the victory screen includes all three nights.
+    completeNight(campaign, world);
     screen = 'won';
     saveBest(Math.max(loadBest(), world.score));
-    setStatus('Dawn breaks — you win!');
+    setStatus('Dawn breaks — all three nights held!');
   } else if (world.phase === 'lost' && screen !== 'lost') {
     screen = 'lost';
     saveBest(Math.max(loadBest(), world.score));
-    setStatus('The light fades — press Space to try again.');
+    setStatus('The light fades — press Space to try this night again.');
   }
 }
 
@@ -99,7 +121,14 @@ function handleActions(actions) {
   for (const action of actions) {
     if (action === 'confirm') {
       if (screen === 'title') startPlaying();
-      else if (screen === 'won' || screen === 'lost') newRun((Math.random() * 1e9) | 0, world.difficulty);
+      else if (screen === 'map') startNight();
+      else if (screen === 'won') startPlaying();
+      else if (screen === 'lost') {
+        // The campaign keeps its shards and meta: only this night restarts.
+        newRun((Math.random() * 1e9) | 0, world.difficulty, campaign);
+        screen = 'play';
+        setStatus(`Night ${world.night} again — the night deepens. Hold the light.`);
+      }
     } else if (action === 'pause') {
       if (screen === 'play') {
         screen = 'pause';
@@ -108,7 +137,7 @@ function handleActions(actions) {
         screen = 'play';
       }
     } else if (action === 'restart') {
-      newRun((Math.random() * 1e9) | 0, world ? world.difficulty : 'normal');
+      newRun((Math.random() * 1e9) | 0, world ? world.difficulty : 'normal', campaign);
     } else if (action === 'mute') {
       const muted = audio.toggleMute();
       setStatus(muted ? 'Sound off.' : 'Sound on.');
@@ -139,8 +168,36 @@ function handleActions(actions) {
         );
         if (hit) view.difficulty = hit.id;
         else startPlaying();
-      } else if (screen === 'won' || screen === 'lost') {
-        newRun((Math.random() * 1e9) | 0, world.difficulty);
+      } else if (screen === 'map') {
+        // A click on a shop card buys it; on a relic card chooses it;
+        // anywhere else enters the next night.
+        const shopRects = mapShopRects(FIELD.w, FIELD.h);
+        const shopIdx = draftHit(shopRects, input.pointer.x, input.pointer.y);
+        if (shopIdx >= 0) {
+          const item = META_SHOP[shopIdx];
+          if (buyMeta(campaign, item.id)) {
+            setStatus(`Bought ${item.name} — ${campaign.shards} shards left.`);
+          } else if ((campaign.metaTaken[item.id] || 0) >= item.max) {
+            setStatus(`${item.name} is maxed out.`);
+          } else {
+            setStatus(`Need ${item.cost - campaign.shards} more shards for ${item.name}.`);
+          }
+        } else {
+          const relicRects = mapRelicRects(FIELD.w, FIELD.h);
+          const relicIdx = draftHit(relicRects, input.pointer.x, input.pointer.y);
+          if (relicIdx >= 0) {
+            chooseRelic(campaign, RELICS[relicIdx].id);
+            setStatus(`Relic chosen: ${RELICS[relicIdx].name} for Night ${campaign.night}.`);
+          } else {
+            startNight();
+          }
+        }
+      } else if (screen === 'won') {
+        startPlaying();
+      } else if (screen === 'lost') {
+        newRun((Math.random() * 1e9) | 0, world.difficulty, campaign);
+        screen = 'play';
+        setStatus(`Night ${world.night} again — the night deepens. Hold the light.`);
       } else if (screen === 'draft') {
         const rects = draftCardRects(FIELD.w, FIELD.h);
         const idx = draftHit(rects, input.pointer.x, input.pointer.y);
@@ -152,13 +209,37 @@ function handleActions(actions) {
         pending.push({ kind: 'place', x: input.pointer.x, y: input.pointer.y, lanternKind: view.placeKind });
         view.placeMode = false;
       }
-    } else if (action === 'draft1' || action === 'draft2' || action === 'draft3') {
+    } else if (
+      action === 'draft1' ||
+      action === 'draft2' ||
+      action === 'draft3' ||
+      action === 'draft4' ||
+      action === 'draft5' ||
+      action === 'draft6'
+    ) {
+      const num = Number(action.slice(-1));
       if (screen === 'title') {
         // Keys 1 / 2 / 3 pick the difficulty on the title screen.
         const ids = ['gentle', 'normal', 'harsh'];
-        view.difficulty = ids[Number(action.slice(-1)) - 1];
+        if (num >= 1 && num <= 3) view.difficulty = ids[num - 1];
+      } else if (screen === 'map') {
+        // Keys 1 / 2 / 3 buy a dawn upgrade; 4 / 5 / 6 choose a relic.
+        if (num >= 1 && num <= 3) {
+          const item = META_SHOP[num - 1];
+          if (buyMeta(campaign, item.id)) {
+            setStatus(`Bought ${item.name} — ${campaign.shards} shards left.`);
+          } else if ((campaign.metaTaken[item.id] || 0) >= item.max) {
+            setStatus(`${item.name} is maxed out.`);
+          } else {
+            setStatus(`Need ${item.cost - campaign.shards} more shards for ${item.name}.`);
+          }
+        } else {
+          const relic = RELICS[num - 4];
+          chooseRelic(campaign, relic.id);
+          setStatus(`Relic chosen: ${relic.name} for Night ${campaign.night}.`);
+        }
       } else if (screen === 'play' && view.placeMode) {
-        // Keys 1 / 2 switch the lantern kind while placing.
+        // Keys 1 / 2 / 3 switch the lantern kind while placing.
         if (action === 'draft1') {
           view.placeKind = 'ember';
           setStatus('Placing an ember lantern — click the field to plant (45 embers). B cancels.');
@@ -168,6 +249,13 @@ function handleActions(actions) {
             setStatus('Placing a frost lantern — click the field to plant (45 embers). B cancels.');
           } else {
             setStatus('Frost lanterns are locked — take the Frost Lantern draft card.');
+          }
+        } else if (action === 'draft3') {
+          if (world.campaign && world.campaign.meta.sun >= 1) {
+            view.placeKind = 'sun';
+            setStatus('Placing a sun lantern — click the field to plant (60 embers). B cancels.');
+          } else {
+            setStatus('Sun lanterns are locked — buy the Sun Lantern on the campaign map.');
           }
         }
       } else if (screen === 'draft') {
@@ -212,11 +300,12 @@ const shotSeed = Number(params.get('seed') || 7);
 if (shotKind) {
   const staged = stageShot(shotKind, shotSeed);
   world = staged.world;
+  campaign = staged.campaign || campaign;
   screen = staged.screen;
   view = staged.view;
   fitCanvas();
-  draw(ctx, world, screen, view);
-  draw(ctx, world, screen, view);
+  draw(ctx, world, screen, view, campaign);
+  draw(ctx, world, screen, view, campaign);
   window.__shotReady = true;
 } else {
   // --- live mode -----------------------------------------------------------
@@ -246,7 +335,7 @@ if (shotKind) {
         // Draft keys/clicks are handled above; nothing else to do here.
       }
     }
-    draw(ctx, world, screen, view);
+    draw(ctx, world, screen, view, campaign);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

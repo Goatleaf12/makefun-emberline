@@ -7,7 +7,8 @@
 // than staged drawings.
 
 import { createWorld, step, draftPick, effFlareCost, effFlareRadius } from './world.js';
-import { LANTERN_COST } from './lanterns.js';
+import { LANTERN_COST, SUN_COST } from './lanterns.js';
+import { makeCampaign, completeNight, buyMeta, chooseRelic, META_PRIORITY } from './campaign.js';
 
 // Draft picks the autopilot prefers, best first: lantern growth early,
 // then survival, then damage.
@@ -69,7 +70,6 @@ function autopilot(world) {
     if (near >= 2) actions.push({ kind: 'flare' });
   }
   if (
-    world.embers >= LANTERN_COST &&
     world.lanterns.list.length < world.lanterns.slots &&
     world.wave >= 2
   ) {
@@ -83,13 +83,18 @@ function autopilot(world) {
     }
     if (clear) {
       // Once the frost card is taken, the second lantern is a frost one:
-      // the chill covers the lane the ember lanterns do not.
+      // the chill covers the lane the ember lanterns do not. Once the
+      // Sun Lantern is bought on the campaign map, the third is a sun one.
       const hasFrost = world.lanterns.list.some((l) => l.kind === 'frost');
+      const hasSun = world.lanterns.list.some((l) => l.kind === 'sun');
       const lanternKind =
         (world.upgrades.frost || 0) >= 1 && !hasFrost && world.lanterns.list.length >= 1
           ? 'frost'
-          : 'ember';
-      actions.push({ kind: 'place', x: px, y: py, lanternKind });
+          : (world.campaign?.meta.sun || 0) >= 1 && !hasSun && world.lanterns.list.length >= 2
+            ? 'sun'
+            : 'ember';
+      const cost = lanternKind === 'sun' ? SUN_COST : LANTERN_COST;
+      if (world.embers >= cost) actions.push({ kind: 'place', x: px, y: py, lanternKind });
     }
   }
   return { steer, dash, actions };
@@ -120,32 +125,90 @@ export function playSteps(world, maxSteps, opts = {}) {
   return steps;
 }
 
-// Stage one named scene. Returns the world, the screen to paint, and the
-// view (placement ghost) the render needs.
+// Play a whole campaign with the autopilot: night 1, map buys, night 2,
+// map buys, night 3. Between nights the autopilot buys meta upgrades in
+// priority order and picks the Twin Flames relic. Returns { campaign,
+// world, screen } where screen is 'won' (campaign complete), 'lost' (a
+// night fell), or 'map' when stopAfterNight freezes on the map after that
+// night. Every night starts from a fixed seed (seed + night * 1000), so a
+// campaign replays identically.
+export function playCampaign(seed, difficulty = 'normal', opts = {}) {
+  const campaign = makeCampaign();
+  let world = createWorld(seed, 0, difficulty, campaign);
+  for (let night = 1; night <= 3; night++) {
+    playSteps(world, 60 * 60 * 12);
+    if (world.phase === 'lost') return { campaign, world, screen: 'lost' };
+    if (world.phase === 'won') {
+      // The last night: settle it too, so the campaign total includes it.
+      completeNight(campaign, world);
+      return { campaign, world, screen: 'won' };
+    }
+    if (world.phase !== 'nightwon') return { campaign, world, screen: 'lost' };
+    completeNight(campaign, world);
+    for (const id of META_PRIORITY) buyMeta(campaign, id);
+    chooseRelic(campaign, 'twin-flames');
+    if (opts.stopAfterNight === night) return { campaign, world, screen: 'map' };
+    world = createWorld(seed + night * 1000, 0, difficulty, campaign);
+  }
+  return { campaign, world, screen: 'won' };
+}
+
+// Stage one named scene. Returns the world, the screen to paint, the
+// campaign, and the view (placement ghost) the render needs.
 export function stageShot(kind, seed, difficulty = 'normal') {
   const world = createWorld(seed, 0, difficulty);
   const view = { placeMode: false, pointer: { x: 480, y: 300 } };
   if (kind === 'title') {
-    return { world, screen: 'title', view };
+    return { world, screen: 'title', view, campaign: world.campaign };
+  }
+  if (kind === 'map') {
+    // Gentle, seed search: the first seed whose night 1 is held stages
+    // the campaign map, shards and shop visible.
+    for (let s = seed; s < seed + 24; s++) {
+      const run = playCampaign(s, 'gentle', { stopAfterNight: 1 });
+      if (run.screen === 'map') return { world: run.world, screen: 'map', view, campaign: run.campaign };
+    }
+    const run = playCampaign(seed, 'gentle', { stopAfterNight: 1 });
+    return { world: run.world, screen: 'play', view, campaign: run.campaign };
+  }
+  if (kind === 'night2') {
+    // Normal difficulty: hold night 1, then play night 2 partway — gloom
+    // wisps, a new objective, and the campaign's harder mix on screen.
+    for (let s = seed; s < seed + 24; s++) {
+      const run = playCampaign(s, 'normal', { stopAfterNight: 1 });
+      if (run.screen === 'map') {
+        const world2 = createWorld(s + 1000, 0, 'normal', run.campaign);
+        playSteps(world2, 60 * 75);
+        return { world: world2, screen: 'play', view, campaign: run.campaign };
+      }
+    }
+    const run = playCampaign(seed, 'normal', { stopAfterNight: 1 });
+    return { world: run.world, screen: 'play', view, campaign: run.campaign };
   }
   if (kind === 'draft') {
     playSteps(world, 60 * 240, { stopAtDraft: true });
-    return { world, screen: world.phase === 'draft' ? 'draft' : 'play', view };
+    return { world, screen: world.phase === 'draft' ? 'draft' : 'play', view, campaign: world.campaign };
   }
   if (kind === 'play') {
     playSteps(world, 60 * 75);
-    return { world, screen: 'play', view };
+    return { world, screen: 'play', view, campaign: world.campaign };
   }
   if (kind === 'action') {
     playSteps(world, 60 * 150);
     view.placeMode = world.embers >= LANTERN_COST;
     view.pointer = { x: 620, y: 220 };
-    return { world, screen: 'play', view };
+    return { world, screen: 'play', view, campaign: world.campaign };
   }
   if (kind === 'end') {
-    playSteps(world, 60 * 60 * 14);
-    const screen = world.phase === 'won' ? 'won' : world.phase === 'lost' ? 'lost' : 'play';
-    return { world, screen, view };
+    // Gentle, seed search: the first seed whose whole campaign is won
+    // stages the campaign win screen. A full campaign is three nights,
+    // so the search may take a while — it is deterministic.
+    for (let s = seed; s < seed + 24; s++) {
+      const run = playCampaign(s, 'gentle');
+      if (run.screen === 'won') return { world: run.world, screen: 'won', view, campaign: run.campaign };
+    }
+    const run = playCampaign(seed, 'gentle');
+    return { world: run.world, screen: run.screen, view, campaign: run.campaign };
   }
   if (kind === 'boss') {
     // Play until the Gloom Herald appears on wave 10, then hold about a
@@ -157,7 +220,7 @@ export function stageShot(kind, seed, difficulty = 'normal') {
       playSteps(world, 60);
       if (world.boss && world.boss.age >= 1.0) break;
     }
-    return { world, screen: 'play', view };
+    return { world, screen: 'play', view, campaign: world.campaign };
   }
-  return { world, screen: 'play', view };
+  return { world, screen: 'play', view, campaign: world.campaign };
 }

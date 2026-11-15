@@ -11,7 +11,8 @@ import { FIELD, TUNE, WISP_KINDS, PICKUPS, waveSpec, DIFFICULTIES } from './conf
 import { makeRng, pick, fieldPoint } from './random.js';
 import {
   makeLanterns,
-  canPlace,
+  canPlaceKind,
+  lanternCost,
   placeLantern,
   updateLanterns,
   frostRadius,
@@ -20,22 +21,33 @@ import {
 } from './lanterns.js';
 import { makeUpgrades, rollDraft, applyUpgrade } from './draft.js';
 import { lightState, inLight } from './daylight.js';
-
-export { LANTERN_COST };
+import { makeCampaign, nightDef } from './campaign.js';
 
 // A brand-new run: Ember mid-field, wave 1 about to open. `difficulty`
 // is 'gentle' | 'normal' | 'harsh' and only changes hearts, wisp speed
-// and wisp count; the rules never change.
-export function createWorld(seed, best = 0, difficulty = 'normal') {
+// and wisp count; the rules never change. `campaign` carries the nights
+// already held, the meta upgrades bought on the map, and the relic chosen
+// for this night; a fresh campaign starts night 1 with nothing.
+export function createWorld(seed, best = 0, difficulty = 'normal', campaign = null) {
   const rng = makeRng(seed);
   const diff = DIFFICULTIES[difficulty] || DIFFICULTIES.normal;
+  const camp = campaign || makeCampaign();
+  const night = camp.night;
+  const bossSpec = nightDef(night).boss;
+  const relic = camp.relic || null;
+  camp.relic = null; // the relic is spent: one night, one relic
   const world = {
     seed,
     rng,
     time: 0,
     best,
     difficulty,
-    phase: 'play', // 'play' | 'draft' | 'won' | 'lost'
+    campaign: camp,
+    night,
+    relic,
+    bossName: bossSpec.name,
+    bossSpawn: bossSpec.spawn,
+    phase: 'play', // 'play' | 'draft' | 'nightwon' | 'won' | 'lost'
     wave: 1,
     waveTime: 0,
     waveActive: false,
@@ -48,7 +60,7 @@ export function createWorld(seed, best = 0, difficulty = 'normal') {
       vx: 0,
       vy: 0,
       r: TUNE.emberRadius,
-      hearts: diff.hearts,
+      hearts: diff.hearts + camp.meta.hearts + (relic === 'stout-heart' ? 1 : 0),
       invuln: 0,
       dashTime: 0,
       dashCool: 0,
@@ -62,7 +74,7 @@ export function createWorld(seed, best = 0, difficulty = 'normal') {
     lanterns: makeLanterns(),
     upgrades: makeUpgrades(),
     draftOptions: null,
-    embers: 0,
+    embers: camp.embersCarry,
     score: 0,
     combo: 0,
     comboTimer: 0,
@@ -78,6 +90,7 @@ export function createWorld(seed, best = 0, difficulty = 'normal') {
     stats: { motes: 0, banished: 0, flares: 0, placed: 0, waves: 0 },
     events: [],
   };
+  syncLanterns(world);
   startWave(world, 1);
   return world;
 }
@@ -93,7 +106,7 @@ export function effFlareCost(world) {
 }
 
 export function effFlareRadius(world) {
-  return TUNE.flareRadius + world.upgrades.flareRadius;
+  return TUNE.flareRadius + world.upgrades.flareRadius + (world.relic === 'twin-flames' ? 80 : 0);
 }
 
 export function effComboWindow(world) {
@@ -111,7 +124,8 @@ export function effMoteEnergy(world) {
 function syncLanterns(world) {
   const u = world.upgrades;
   const l = world.lanterns;
-  l.slots = 2 + u.lanternSlots;
+  // Draft slots plus the Lantern Rack meta upgrades bought on the map.
+  l.slots = 2 + u.lanternSlots + (world.campaign ? world.campaign.meta.slots : 0);
   l.range = 175 + u.lanternRange;
   l.cooldown = 1.0 * u.lanternCooldown;
   l.damage = 1 + u.lanternDamage;
@@ -149,8 +163,10 @@ function spawnWisp(world, kind) {
     x: p.x,
     y: p.y,
     r: spec.radius,
-    hp: spec.hp,
-    maxHp: spec.hp,
+    // The boss wears its night's health: the Herald 26, the Hollow King
+    // 32, the Night Itself 40.
+    hp: kind === 'boss' ? nightDef(world.night).boss.hp : spec.hp,
+    maxHp: kind === 'boss' ? nightDef(world.night).boss.hp : spec.hp,
     speed: spec.speed,
     color: spec.color,
     heading: world.rng() * Math.PI * 2,
@@ -168,7 +184,7 @@ function spawnWisp(world, kind) {
 }
 
 function startWave(world, wave) {
-  const spec = waveSpec(wave, world.difficulty);
+  const spec = waveSpec(wave, world.difficulty, world.night);
   world.wave = wave;
   world.waveTime = 0;
   world.waveActive = true;
@@ -289,7 +305,7 @@ function fireFlare(world) {
     const dx = wisp.x - e.x;
     const dy = wisp.y - e.y;
     if (dx * dx + dy * dy <= radius * radius) {
-      hurtWisp(world, wisp, TUNE.flareDamage, 'flare');
+      hurtWisp(world, wisp, TUNE.flareDamage + (world.relic === 'twin-flames' ? 1 : 0), 'flare');
     }
   }
   return true;
@@ -365,7 +381,7 @@ function stepEmber(world, dt, steer, dashHeld) {
 function stepWisps(world, dt) {
   const e = world.ember;
   const slow = world.slowTimer > 0 ? 0.5 : 1;
-  const spec = waveSpec(world.wave, world.difficulty);
+  const spec = waveSpec(world.wave, world.difficulty, world.night);
   // Frost lanterns: a wisp standing in any frost aura moves slower. The
   // strongest aura covering it wins; a lit frost lantern's aura reaches
   // 40% farther, like an ember lantern's range in the Dawn Star's light.
@@ -422,7 +438,7 @@ function stepWisps(world, dt) {
       w.spawnTimer -= dt;
       if (w.spawnTimer <= 0) {
         w.spawnTimer = 4;
-        const child = spawnWisp(world, 'drifter');
+        const child = spawnWisp(world, world.bossSpawn || 'drifter');
         child.x = w.x;
         child.y = w.y + 30;
       }
@@ -455,12 +471,16 @@ function stepMotes(world, dt) {
       mote.dead = true;
       const brave = nearWisp(world, mote.x, mote.y);
       // A mote gathered in the Dawn Star's light pays +5: the light is
-      // worth chasing, not just standing in.
+      // worth chasing, not just standing in. The Golden Motes relic adds
+      // +5 score and +1 ember on top of that.
       const sunlit = inLight(mote.x, mote.y, lightState(world));
       const mult = comboMult(world);
-      const gain = effMoteScore(world) * mult * (brave ? 2 : 1) + (sunlit ? 5 : 0);
+      const gain =
+        effMoteScore(world) * mult * (brave ? 2 : 1) +
+        (sunlit ? 5 : 0) +
+        (world.relic === 'golden-motes' ? 5 : 0);
       world.score += gain;
-      world.embers += TUNE.moteEmbers;
+      world.embers += TUNE.moteEmbers + (world.relic === 'golden-motes' ? 1 : 0);
       world.flareEnergy = Math.min(100, world.flareEnergy + effMoteEnergy(world));
       world.combo++;
       world.comboTimer = effComboWindow(world);
@@ -537,16 +557,20 @@ export function step(world, dt, steer, dashHeld, actions) {
   for (const action of actions || []) {
     if (action.kind === 'flare') fireFlare(world);
     if (action.kind === 'place') {
-      const kind = action.lanternKind === 'frost' ? 'frost' : 'ember';
-      // Frost lanterns need the Frost Lantern draft card first.
+      const kind = action.lanternKind === 'frost' ? 'frost' : action.lanternKind === 'sun' ? 'sun' : 'ember';
+      const cost = lanternCost(kind);
+      // Frost lanterns need the Frost Lantern draft card first; sun
+      // lanterns need the Sun Lantern meta upgrade from the campaign map.
       if (kind === 'frost' && (world.upgrades.frost || 0) < 1) {
         world.events.push('placefail');
-      } else if (canPlace(world.lanterns, world.embers)) {
-        world.embers -= LANTERN_COST;
+      } else if (kind === 'sun' && (!world.campaign || world.campaign.meta.sun < 1)) {
+        world.events.push('placefail');
+      } else if (canPlaceKind(world.lanterns, world.embers, kind)) {
+        world.embers -= cost;
         placeLantern(world.lanterns, action.x, action.y, kind);
         world.stats.placed++;
         world.events.push('place');
-        burst(world, action.x, action.y, kind === 'frost' ? '#7dd3fc' : '#fde68a', 12, 120);
+        burst(world, action.x, action.y, kind === 'frost' ? '#7dd3fc' : kind === 'sun' ? '#fde047' : '#fde68a', 12, 120);
       } else {
         world.events.push('placefail');
       }
@@ -596,7 +620,9 @@ export function step(world, dt, steer, dashHeld, actions) {
   if (world.waveActive && world.spawnQueue.length === 0 && world.wisps.length === 0) {
     world.waveActive = false;
     if (world.wave >= 10) {
-      world.phase = 'won';
+      // The night is held: the last night wins the campaign, any earlier
+      // night opens the campaign map instead.
+      world.phase = world.night >= 3 ? 'won' : 'nightwon';
       world.events.push('win');
     } else {
       openDraft(world);

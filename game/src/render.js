@@ -9,9 +9,10 @@
 import { FIELD, PALETTE, TUNE, DIFFICULTIES, DIFFICULTY_IDS } from './config.js';
 import { makeRng } from './random.js';
 import { draftCardRects, buildLine } from './draft.js';
-import { LANTERN_COST, frostRadius } from './lanterns.js';
+import { LANTERN_COST, SUN_COST, frostRadius } from './lanterns.js';
 import { drawSceneryBack, drawSceneryFront, drawMiniLantern } from './scenery.js';
 import { lightState, inLight, skyForWave } from './daylight.js';
+import { NIGHTS, META_SHOP, RELICS, nightDef, objectiveCount, metaLine, relicDef } from './campaign.js';
 
 // Fixed stars and nebulae: one seeded layout, the same in every run.
 const STAR_RNG = makeRng(20261116);
@@ -278,7 +279,37 @@ function drawWisps(ctx, world) {
     }
     glow(ctx, w.x, w.y, w.r * 2.6, rgba(w.color, 0.55));
     ctx.fillStyle = w.color;
-    if (w.kind === 'splitter') {
+    if (w.kind === 'gloom') {
+      // A heavy bruise of a wisp: a big dark-violet body with a slow
+      // dashed halo, so its 4 HP reads before the first bolt lands.
+      ctx.beginPath();
+      ctx.arc(w.x, w.y, w.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(196, 181, 253, 0.7)';
+      ctx.setLineDash([8, 7]);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(w.x, w.y, w.r + 8, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = 'rgba(30, 16, 54, 0.9)';
+      ctx.beginPath();
+      ctx.arc(w.x, w.y, w.r * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (w.kind === 'spark') {
+      // A live spark: a small gold diamond that darts, with a short tail.
+      ctx.save();
+      ctx.translate(w.x, w.y);
+      ctx.rotate(Math.PI / 4);
+      ctx.fillRect(-w.r * 0.8, -w.r * 0.8, w.r * 1.6, w.r * 1.6);
+      ctx.restore();
+      ctx.strokeStyle = rgba(w.color, 0.9);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(w.x - fx * (w.r + 6), w.y - fy * (w.r + 6));
+      ctx.lineTo(w.x - fx * (w.r + 18), w.y - fy * (w.r + 18));
+      ctx.stroke();
+    } else if (w.kind === 'splitter') {
       // Figure-eight body: two lobes side by side, split down the middle.
       const px = -fy;
       const py = fx;
@@ -393,7 +424,7 @@ function drawWisps(ctx, world) {
       ctx.fillRect(w.x - bw / 2, w.y - w.r - 26, bw, 7);
       ctx.fillStyle = '#f43f5e';
       ctx.fillRect(w.x - bw / 2, w.y - w.r - 26, bw * Math.max(0, w.hp / w.maxHp), 7);
-      text(ctx, 'GLOOM HERALD', w.x, w.y - w.r - 38, 12, '#fb7185', 'center');
+      text(ctx, (world.bossName || 'GLOOM HERALD').toUpperCase(), w.x, w.y - w.r - 38, 12, '#fb7185', 'center');
     } else if (w.maxHp > 1) {
       // Small health pips for two-hit wisps.
       for (let i = 0; i < w.maxHp; i++) {
@@ -409,7 +440,53 @@ function drawWisps(ctx, world) {
 function drawLanterns(ctx, world, view, light) {
   for (const l of world.lanterns.list) {
     const frost = l.kind === 'frost';
-    if (frost) {
+    const sun = l.kind === 'sun';
+    if (sun) {
+      // Sun lantern: a broad golden lamp on a tall post, ringed by eight
+      // short rays. It fires three bolts at once, so it reads as the
+      // campaign's heavy lantern at a glance.
+      const pulse = 0.12 + 0.05 * Math.sin(world.time * 2 + l.x);
+      ctx.fillStyle = `rgba(253, 224, 71, ${pulse})`;
+      ctx.beginPath();
+      ctx.arc(l.x, l.y, 52, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(253, 224, 71, 0.55)';
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2 + world.time * 0.4;
+        ctx.beginPath();
+        ctx.moveTo(l.x + Math.cos(a) * 20, l.y - 12 + Math.sin(a) * 20);
+        ctx.lineTo(l.x + Math.cos(a) * 28, l.y - 12 + Math.sin(a) * 28);
+        ctx.stroke();
+      }
+      glow(ctx, l.x, l.y - 12, 48 + (l.flash > 0 ? 16 : 0), 'rgba(253, 224, 71, 0.8)');
+      const reach = world.lanterns.range * (l.lit ? 1.4 : 1);
+      ctx.strokeStyle = l.lit ? 'rgba(253, 224, 71, 0.5)' : 'rgba(253, 224, 71, 0.07)';
+      ctx.lineWidth = l.lit ? 2.5 : 1.5;
+      ctx.beginPath();
+      ctx.arc(l.x, l.y, reach, 0, Math.PI * 2);
+      ctx.stroke();
+      const pool = ctx.createRadialGradient(l.x, l.y + 8, 2, l.x, l.y + 8, 52);
+      pool.addColorStop(0, 'rgba(253, 224, 71, 0.26)');
+      pool.addColorStop(1, 'rgba(253, 224, 71, 0)');
+      ctx.fillStyle = pool;
+      ctx.beginPath();
+      ctx.ellipse(l.x, l.y + 8, 52, 18, 0, 0, Math.PI * 2);
+      ctx.fill();
+      const flick = 1 + Math.sin(world.time * 6 + l.x) * 0.15;
+      ctx.fillStyle = '#78350f';
+      ctx.fillRect(l.x - 5, l.y - 8, 10, 20);
+      ctx.fillStyle = '#92400e';
+      ctx.fillRect(l.x - 11, l.y + 10, 22, 6);
+      ctx.fillStyle = '#fde047';
+      ctx.beginPath();
+      ctx.arc(l.x, l.y - 14, 11 * flick, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#fff7e6';
+      ctx.beginPath();
+      ctx.arc(l.x, l.y - 14, 5, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (frost) {
       // Frost lantern: a pale-blue chill aura, wider in the Dawn Star's
       // light, over a crystal body on a dark post. It never fires bolts.
       const auraR = frostRadius(world.upgrades) * (l.lit ? 1.4 : 1);
@@ -494,11 +571,12 @@ function drawLanterns(ctx, world, view, light) {
       ctx.stroke();
     }
   }
-  // Bolts in flight: bright streaks with a fading tail.
+  // Bolts in flight: bright streaks with a fading tail. Spread bolts
+  // fly straight along their own direction; homing bolts chase a target.
   for (const b of world.lanterns.bolts) {
     const t = b.target;
-    const dx = t ? t.x - b.x : 0;
-    const dy = t ? t.y - b.y : -6;
+    const dx = b.spread ? b.vx : t ? t.x - b.x : 0;
+    const dy = b.spread ? b.vy : t ? t.y - b.y : -6;
     const d = Math.hypot(dx, dy) || 1;
     const ux = dx / d;
     const uy = dy / d;
@@ -514,21 +592,28 @@ function drawLanterns(ctx, world, view, light) {
     glow(ctx, b.x, b.y, 11, 'rgba(254, 243, 199, 0.9)');
   }
   // Placement ghost: follows the pointer while B is armed. 1 picks an
-  // ember lantern, 2 a frost one (once the draft card unlocked it).
+  // ember lantern, 2 a frost one (once the draft card unlocked it), 3 a
+  // sun one (once the campaign map unlocked it).
   if (view && view.placeMode) {
     const p = view.pointer;
-    const kind = view.placeKind === 'frost' ? 'frost' : 'ember';
-    const unlocked = kind === 'ember' || (world.upgrades.frost || 0) >= 1;
+    const kind = view.placeKind === 'frost' ? 'frost' : view.placeKind === 'sun' ? 'sun' : 'ember';
+    const cost = kind === 'sun' ? SUN_COST : LANTERN_COST;
+    const unlocked =
+      kind === 'ember' ||
+      (kind === 'frost' && (world.upgrades.frost || 0) >= 1) ||
+      (kind === 'sun' && world.campaign && world.campaign.meta.sun >= 1);
     const slotsFree = world.lanterns.list.length < world.lanterns.slots;
-    const afford = world.embers >= LANTERN_COST;
+    const afford = world.embers >= cost;
     const ok = slotsFree && afford && unlocked;
     const label = !unlocked
-      ? 'FROST LOCKED — TAKE THE FROST LANTERN CARD'
+      ? kind === 'sun'
+        ? 'SUN LOCKED — BUY IT ON THE CAMPAIGN MAP'
+        : 'FROST LOCKED — TAKE THE FROST LANTERN CARD'
       : !slotsFree
         ? 'NO FREE LANTERN SLOT'
         : !afford
-          ? `NEED ${LANTERN_COST} EMBERS`
-          : `CLICK TO PLANT ${kind === 'frost' ? 'FROST' : 'EMBER'} — ${LANTERN_COST} EMBERS`;
+          ? `NEED ${cost} EMBERS`
+          : `CLICK TO PLANT ${kind.toUpperCase()} — ${cost} EMBERS`;
     const ringR =
       kind === 'frost'
         ? frostRadius(world.upgrades) * (inLight(p.x, p.y, light) ? 1.4 : 1)
@@ -552,8 +637,8 @@ function drawLanterns(ctx, world, view, light) {
     ctx.fill();
     text(ctx, label, p.x, p.y + 30, 13, ok ? (kind === 'frost' ? '#bae6fd' : '#fde68a') : '#fb7185', 'center');
     // Keep the hint on-canvas when the pointer hugs an edge.
-    const lx = Math.max(95, Math.min(FIELD.w - 95, p.x));
-    text(ctx, 'PRESS 1 EMBER · 2 FROST', lx, p.y + 48, 11, PALETTE.dim, 'center');
+    const lx = Math.max(110, Math.min(FIELD.w - 110, p.x));
+    text(ctx, 'PRESS 1 EMBER · 2 FROST · 3 SUN', lx, p.y + 48, 11, PALETTE.dim, 'center');
   }
 }
 
@@ -645,11 +730,12 @@ function drawHud(ctx, world) {
   }
   // Wave + its sky phase, centred: every wave of the night has a name.
   // Off-normal difficulties tag along, so a hard run reads as hard.
+  // The night of the campaign tags along too: night 2 is not night 1.
   const diffTag =
     world.difficulty && world.difficulty !== 'normal'
       ? ` · ${DIFFICULTIES[world.difficulty].name}`
       : '';
-  text(ctx, `WAVE ${world.wave}/10 — ${lightState(world).phase.name}${diffTag}`, FIELD.w / 2, 18, 17, PALETTE.cream, 'center');
+  text(ctx, `WAVE ${world.wave}/10 — ${lightState(world).phase.name} · NIGHT ${world.night}/3${diffTag}`, FIELD.w / 2, 18, 17, PALETTE.cream, 'center');
   for (let i = 0; i < TUNE.ringScores.length; i++) {
     ctx.fillStyle = i < world.ringsLit ? '#ffd166' : 'rgba(255,255,255,0.25)';
     ctx.beginPath();
@@ -663,9 +749,25 @@ function drawHud(ctx, world) {
   ctx.fillRect(FIELD.w / 2 - 50, 46, 100 * (world.wave / 10), 4);
   if (world.stormTimer > 0) {
     text(ctx, '⚡ EMBER STORM — MOTES RAIN!', FIELD.w / 2, 58, 14, '#ff8c42', 'center');
+  } else if (world.boss) {
+    text(ctx, `${(world.bossName || 'THE GLOOM HERALD').toUpperCase()} IS HERE`, FIELD.w / 2, 58, 14, '#fb7185', 'center');
+  } else {
+    // This night's objective, with its live count — and the relic the
+    // keeper chose on the campaign map, when there is one.
+    const obj = nightDef(world.night).objective;
+    const count = objectiveCount(world);
+    const relic = world.relic ? relicDef(world.relic) : null;
+    text(
+      ctx,
+      `NIGHT ${world.night} GOAL: ${obj.label.toUpperCase()} ${count}/${obj.target}${relic ? `  ·  RELIC: ${relic.name.toUpperCase()}` : ''}`,
+      FIELD.w / 2,
+      58,
+      13,
+      PALETTE.gold,
+      'center',
+    );
   }
   if (world.boss) {
-    text(ctx, 'THE GLOOM HERALD IS HERE', FIELD.w / 2, 58, 14, '#fb7185', 'center');
     const bw = 260;
     ctx.fillStyle = 'rgba(7, 11, 29, 0.8)';
     ctx.fillRect(FIELD.w / 2 - bw / 2, 66, bw, 8);
@@ -760,6 +862,7 @@ function drawTitle(ctx, world, view) {
   text(ctx, 'You are Ember, keeper of the last light. Night sends its wisps.', FIELD.w / 2, 198, 17, PALETTE.cream, 'center');
   text(ctx, 'Gather motes. Spend embers to plant lanterns — they fight for you.', FIELD.w / 2, 224, 17, PALETTE.cream, 'center');
   text(ctx, 'Light all 5 beacon rings and survive 10 waves until dawn.', FIELD.w / 2, 250, 17, PALETTE.cream, 'center');
+  text(ctx, 'A campaign of THREE NIGHTS — your lanterns, upgrades and shards carry over.', FIELD.w / 2, 276, 15, PALETTE.gold, 'center');
   const lines = [
     'WASD / ARROWS or MOUSE — steer Ember',
     'SHIFT — dash      F — flare (banishes wisps)',
@@ -783,7 +886,7 @@ function drawTitle(ctx, world, view) {
     text(ctx, `${rect.key} · ${diff.name}`, rect.x + rect.w / 2, rect.y + 15, 13, active ? PALETTE.gold : PALETTE.dim, 'center');
     text(ctx, diff.tag, rect.x + rect.w / 2, rect.y + 31, 11, PALETTE.dim, 'center');
   }
-  const pulse = 0.6 + 0.4 * Math.sin(world.time * 3);
+  const pulse = 0.75 + 0.25 * Math.sin(world.time * 3);
   ctx.globalAlpha = pulse;
   text(ctx, 'PRESS SPACE OR CLICK TO BEGIN', FIELD.w / 2, 530, 20, PALETTE.cream, 'center');
   ctx.globalAlpha = 1;
@@ -954,7 +1057,108 @@ function drawDraft(ctx, world) {
   text(ctx, `SCORE ${world.score.toLocaleString('en-US')}  ·  EMBERS ${world.embers}  ·  LANTERNS ${world.lanterns.list.length}/${world.lanterns.slots}`, FIELD.w / 2, FIELD.h - 50, 14, PALETTE.cream, 'center');
 }
 
-function drawEnd(ctx, world, won) {
+// Campaign-map card rows: the dawn shop (keys 1/2/3) and the relic row
+// (keys 4/5/6). The caller keeps the choice in the campaign object.
+export function mapShopRects(w, h) {
+  const cw = 210;
+  const ch = 100;
+  const gap = 26;
+  const total = cw * 3 + gap * 2;
+  const x0 = (w - total) / 2;
+  return [0, 1, 2].map((i) => ({ x: x0 + i * (cw + gap), y: 268, w: cw, h: ch }));
+}
+
+export function mapRelicRects(w, h) {
+  const cw = 210;
+  const ch = 80;
+  const gap = 26;
+  const total = cw * 3 + gap * 2;
+  const x0 = (w - total) / 2;
+  return [0, 1, 2].map((i) => ({ x: x0 + i * (cw + gap), y: 410, w: cw, h: ch }));
+}
+
+function drawMap(ctx, world, campaign) {
+  const camp = campaign || world.campaign;
+  ctx.fillStyle = 'rgba(7, 11, 29, 0.82)';
+  ctx.fillRect(0, 0, FIELD.w, FIELD.h);
+  text(ctx, `NIGHT ${world.night} HELD — ${camp.lastEarned || 0} DAWN SHARDS EARNED`, FIELD.w / 2, 62, 28, PALETTE.gold, 'center');
+  text(ctx, `The campaign continues — spend shards, choose a relic, then enter Night ${camp.night}`, FIELD.w / 2, 92, 15, PALETTE.cream, 'center');
+  text(ctx, `DAWN SHARDS ${camp.shards}  ·  CAMPAIGN SCORE ${camp.totalScore.toLocaleString('en-US')}`, FIELD.w / 2, 116, 14, PALETTE.gold, 'center');
+  // The night path: three nodes on one road, held / next / locked.
+  ctx.strokeStyle = 'rgba(255, 209, 102, 0.4)';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(240, 160);
+  ctx.lineTo(720, 160);
+  ctx.stroke();
+  NIGHTS.forEach((night, i) => {
+    const x = 240 + i * 240;
+    const y = 160;
+    const held = night.id < camp.night;
+    const next = night.id === camp.night;
+    ctx.fillStyle = held ? '#ffd166' : next ? 'rgba(255, 179, 71, 0.2)' : 'rgba(19, 26, 58, 0.9)';
+    ctx.beginPath();
+    ctx.arc(x, y, 26, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = held ? '#ffd166' : next ? '#ffd166' : '#475569';
+    ctx.lineWidth = next ? 3 : 2;
+    ctx.beginPath();
+    ctx.arc(x, y, 26, 0, Math.PI * 2);
+    ctx.stroke();
+    text(ctx, held ? '✓' : String(night.id), x, y, 20, held ? '#070b1d' : next ? PALETTE.gold : PALETTE.dim, 'center');
+    text(ctx, `NIGHT ${night.id} — ${night.name}`, x, y + 44, 14, held || next ? PALETTE.cream : PALETTE.dim, 'center');
+    text(ctx, held ? 'HELD' : next ? 'NEXT' : night.short, x, y + 64, 12, held ? PALETTE.gold : next ? '#ffb347' : PALETTE.dim, 'center');
+  });
+  // The dawn shop: permanent upgrades, bought with shards.
+  text(ctx, 'DAWN UPGRADES — spend shards · keys 1 / 2 / 3 or click', FIELD.w / 2, 252, 14, PALETTE.cream, 'center');
+  const shopRects = mapShopRects(FIELD.w, FIELD.h);
+  META_SHOP.forEach((item, i) => {
+    const r = shopRects[i];
+    const taken = camp.metaTaken[item.id] || 0;
+    const maxed = taken >= item.max;
+    const afford = camp.shards >= item.cost;
+    ctx.fillStyle = 'rgba(19, 26, 58, 0.95)';
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+    ctx.strokeStyle = maxed ? '#ffd166' : afford ? '#ffb347' : '#475569';
+    ctx.lineWidth = maxed ? 3 : 2;
+    ctx.strokeRect(r.x, r.y, r.w, r.h);
+    text(ctx, `${i + 1}`, r.x + 16, r.y + 18, 13, PALETTE.dim);
+    text(ctx, item.name, r.x + r.w / 2, r.y + 20, 16, PALETTE.cream, 'center');
+    text(ctx, item.desc, r.x + r.w / 2, r.y + 46, 12, PALETTE.dim, 'center');
+    text(
+      ctx,
+      maxed ? `OWNED x${taken}` : taken > 0 ? `${item.cost} SHARDS · OWNED x${taken}` : `${item.cost} SHARDS`,
+      r.x + r.w / 2,
+      r.y + r.h - 18,
+      13,
+      maxed ? PALETTE.gold : afford ? '#ffb347' : PALETTE.dim,
+      'center',
+    );
+  });
+  // The relic row: one free relic for the coming night.
+  text(ctx, `CHOOSE A RELIC FOR NIGHT ${camp.night} — free · keys 4 / 5 / 6 or click`, FIELD.w / 2, 396, 14, PALETTE.cream, 'center');
+  const relicRects = mapRelicRects(FIELD.w, FIELD.h);
+  RELICS.forEach((relic, i) => {
+    const r = relicRects[i];
+    const chosen = camp.relic === relic.id;
+    ctx.fillStyle = chosen ? 'rgba(255, 179, 71, 0.16)' : 'rgba(19, 26, 58, 0.95)';
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+    ctx.strokeStyle = chosen ? '#ffd166' : '#475569';
+    ctx.lineWidth = chosen ? 3 : 1.5;
+    ctx.strokeRect(r.x, r.y, r.w, r.h);
+    text(ctx, `${i + 4}`, r.x + 16, r.y + 18, 13, PALETTE.dim);
+    text(ctx, relic.name, r.x + r.w / 2, r.y + 20, 16, chosen ? PALETTE.gold : PALETTE.cream, 'center');
+    text(ctx, relic.desc, r.x + r.w / 2, r.y + 46, 12, PALETTE.dim, 'center');
+    if (chosen) text(ctx, '✓ CHOSEN', r.x + r.w / 2, r.y + r.h - 16, 12, PALETTE.gold, 'center');
+  });
+  const pulse = 0.75 + 0.25 * Math.sin(world.time * 3);
+  ctx.globalAlpha = pulse;
+  text(ctx, `PRESS SPACE OR CLICK TO ENTER NIGHT ${camp.night} — ${nightDef(camp.night).name}`, FIELD.w / 2, 528, 20, PALETTE.cream, 'center');
+  ctx.globalAlpha = 1;
+  text(ctx, metaLine(camp), FIELD.w / 2, 560, 13, PALETTE.dim, 'center');
+}
+
+function drawEnd(ctx, world, won, campaign) {
   if (won) {
     // Dawn breaks: warm light rises from the horizon, and all five
     // beacon rings stand lit across it.
@@ -977,39 +1181,43 @@ function drawEnd(ctx, world, won) {
     ctx.fillStyle = 'rgba(7, 11, 29, 0.78)';
     ctx.fillRect(0, 0, FIELD.w, FIELD.h);
   }
-  text(ctx, won ? 'DAWN BREAKS — YOU WIN!' : 'THE LIGHT FADES', FIELD.w / 2, 130, 44, won ? '#ffd166' : '#fb7185', 'center');
+  text(ctx, won ? 'DAWN BREAKS — ALL THREE NIGHTS HELD!' : 'THE LIGHT FADES', FIELD.w / 2, 122, won ? 38 : 44, won ? '#ffd166' : '#fb7185', 'center');
   text(
     ctx,
-    won ? 'All 5 rings lit. The last light held until morning.' : `The wisps took the light on wave ${world.wave}.`,
+    won ? 'All 5 rings lit, three nights held. The last light kept the dawn.' : `The wisps took the light on night ${world.night}, wave ${world.wave}.`,
     FIELD.w / 2,
-    176,
+    164,
     17,
     PALETTE.cream,
     'center',
   );
+  const camp = campaign || world.campaign;
   const rows = [
     ['SCORE', world.score.toLocaleString('en-US')],
     ['BEST', Math.max(world.best, world.score).toLocaleString('en-US')],
+    ['NIGHT', `${world.night} / 3`],
     ['WAVES CLEARED', `${won ? 10 : world.wave - 1} / 10`],
     ['BEACON RINGS', `${world.ringsLit} / 5`],
     ['MOTES GATHERED', `${world.stats.motes}`],
     ['WISPS BANISHED', `${world.stats.banished}`],
     ['LANTERNS PLANTED', `${world.stats.placed}`],
     ['BEST COMBO', `x${world.comboBest}`],
+    ['CAMPAIGN SCORE', camp ? camp.totalScore.toLocaleString('en-US') : '—'],
+    ['DAWN SHARDS', camp ? String(camp.shards) : '—'],
   ];
   rows.forEach(([label, value], i) => {
-    const y = 226 + i * 28;
-    text(ctx, label, FIELD.w / 2 - 130, y, 15, PALETTE.dim, 'right');
-    text(ctx, value, FIELD.w / 2 - 110, y, 15, PALETTE.cream);
+    const y = 204 + i * 25;
+    text(ctx, label, FIELD.w / 2 - 130, y, 14, PALETTE.dim, 'right');
+    text(ctx, value, FIELD.w / 2 - 110, y, 14, PALETTE.cream);
   });
-  const pulse = 0.6 + 0.4 * Math.sin(world.time * 3);
+  const pulse = 0.75 + 0.25 * Math.sin(world.time * 3);
   ctx.globalAlpha = pulse;
-  text(ctx, 'PLAY AGAIN — PRESS SPACE', FIELD.w / 2, 486, 20, PALETTE.cream, 'center');
+  text(ctx, won ? 'A NEW CAMPAIGN — PRESS SPACE' : 'TRY THIS NIGHT AGAIN — PRESS SPACE', FIELD.w / 2, 500, 20, PALETTE.cream, 'center');
   ctx.globalAlpha = 1;
 }
 
 // The one draw call: field + entities + HUD, then the active screen.
-export function draw(ctx, world, screen, view) {
+export function draw(ctx, world, screen, view, campaign) {
   // The Dawn Star's state is pure sim state (wave + waveTime), so every
   // frame of a run paints the same light in the same place.
   const light = lightState(world);
@@ -1040,8 +1248,16 @@ export function draw(ctx, world, screen, view) {
       ctx.fillRect(0, 0, FIELD.w, 84);
       ctx.fillRect(0, FIELD.h - 70, FIELD.w, 70);
       ctx.globalAlpha = a;
-      text(ctx, 'THE GLOOM HERALD', FIELD.w / 2, 38, 34, '#fb7185', 'center');
-      text(ctx, "WAVE 10 — DAWN'S EDGE · 26 HP · IT SPAWNS DRIFTERS", FIELD.w / 2, 66, 13, PALETTE.cream, 'center');
+      text(ctx, (world.bossName || 'THE GLOOM HERALD').toUpperCase(), FIELD.w / 2, 38, 34, '#fb7185', 'center');
+      text(
+        ctx,
+        `WAVE 10 — ${light.phase.name} · ${world.boss ? world.boss.maxHp : 26} HP · IT SPAWNS ${((world.bossSpawn || 'drifter') + 's').toUpperCase()}`,
+        FIELD.w / 2,
+        66,
+        13,
+        PALETTE.cream,
+        'center',
+      );
       text(ctx, 'BANISH IT BEFORE DAWN', FIELD.w / 2, FIELD.h - 44, 16, PALETTE.gold, 'center');
       text(ctx, 'LANTERNS IN THE DAWN LIGHT REACH 40% FARTHER', FIELD.w / 2, FIELD.h - 22, 12, PALETTE.dim, 'center');
       ctx.globalAlpha = 1;
@@ -1058,6 +1274,7 @@ export function draw(ctx, world, screen, view) {
     }
   }
   if (screen === 'title') drawTitle(ctx, world, view);
+  if (screen === 'map') drawMap(ctx, world, campaign);
   if (screen === 'pause') {
     ctx.fillStyle = 'rgba(7, 11, 29, 0.66)';
     ctx.fillRect(0, 0, FIELD.w, FIELD.h);
@@ -1065,6 +1282,6 @@ export function draw(ctx, world, screen, view) {
     text(ctx, 'P to resume  ·  R to restart', FIELD.w / 2, 310, 17, PALETTE.dim, 'center');
   }
   if (screen === 'draft') drawDraft(ctx, world);
-  if (screen === 'won') drawEnd(ctx, world, true);
-  if (screen === 'lost') drawEnd(ctx, world, false);
+  if (screen === 'won') drawEnd(ctx, world, true, campaign);
+  if (screen === 'lost') drawEnd(ctx, world, false, campaign);
 }
